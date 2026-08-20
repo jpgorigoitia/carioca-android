@@ -39,7 +39,7 @@ private val Navy=Color(0xFF102A43); private val Teal=Color(0xFF1E7A73); private 
                 "menu" -> Column(Modifier.fillMaxSize(),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(16.dp)) {
                     Spacer(Modifier.height(34.dp)); Text("CARIOCA",fontSize=42.sp,fontWeight=FontWeight.Black,color=Color.White)
                     Text("Real cards. Clear rules. Your table.",color=Color(0xFFD9EAF2))
-                    SegmentedButtonRow { GameMode.entries.forEachIndexed { i,m -> SegmentedButton(selected=mode==m,onClick={mode=m},shape=SegmentedButtonDefaults.itemShape(i,2)){Text("${m.name.lowercase().replaceFirstChar{it.uppercase()}} · ${m.rounds} rounds")} } }
+                    SingleChoiceSegmentedButtonRow { GameMode.entries.forEachIndexed { i,m -> SegmentedButton(selected=mode==m,onClick={mode=m},shape=SegmentedButtonDefaults.itemShape(i,2)){Text("${m.name.lowercase().replaceFirstChar{it.uppercase()}} · ${m.rounds} rounds")} } }
                     MenuButton("Play Against AI") { screen="practice" }; MenuButton("Private Game · Coming soon"){}; MenuButton("Rules") { screen="rules" }
                     Spacer(Modifier.weight(1f)); Text("Ad-free · No wagering",color=Color(0xFFA9C7D4))
                 }
