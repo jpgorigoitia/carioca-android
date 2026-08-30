@@ -68,19 +68,26 @@ object GameEngine {
     fun contractComplete(player: PlayerState, rule: RoundRule): Boolean =
         remainingRequirements(player, rule).isEmpty()
 
-    /** True when every still-required contract meld can be formed from the current hand. */
+    /** Full round objective can be lowered now. */
     fun contractReady(player: PlayerState, rule: RoundRule): Boolean {
         val remaining = remainingRequirements(player, rule)
         if (remaining.isEmpty()) return true
         return GameRules.findMeldPlan(player.hand, remaining, useAllCards = false) != null
     }
 
-    /** True when at least one still-required Trio/Straight can be placed now. */
+    /** At least one constituent group exists; useful for selection hints only. */
     fun nextMeldReady(player: PlayerState, rule: RoundRule): Boolean =
         remainingRequirements(player, rule).any { type -> findMeld(player.hand, type) != null }
 
     fun cardsStillRequired(player: PlayerState, rule: RoundRule): Int =
         remainingRequirements(player, rule).sumOf(GameRules::minimumCards)
+
+    fun selectionPlan(state: GameState): List<Meld>? {
+        if (state.selected.isEmpty()) return null
+        val player = state.players.first()
+        val cards = player.hand.filter { it in state.selected }
+        return GameRules.findPartialMeldPlan(cards, remainingRequirements(player, state.roundRule))
+    }
 
     fun toggleSelection(state: GameState, card: Card): GameState {
         if (state.phase != TurnPhase.ACTION || state.currentPlayer != 0) return state
@@ -95,12 +102,12 @@ object GameEngine {
     fun stealDiscard(state: GameState): GameState = drawHuman(state, fromDiscard = true)
 
     /**
-     * Creates one exact-size required meld (Trio = 3, Straight = 4), or multiple
-     * exact-size melds when the selected cards cleanly contain several requirements.
+     * First lower: every required group for the round must be committed simultaneously.
+     * After lowering, cards may be added to existing table melds.
      */
     fun createMeld(state: GameState): GameState {
         if (state.phase != TurnPhase.ACTION || state.currentPlayer != 0) return state
-        if (state.selected.isEmpty()) return state.copy(message = "Select cards for a Trio or Straight first.")
+        if (state.selected.isEmpty()) return state.copy(message = "Select the cards for this round's goal first.")
 
         val human = state.players.first()
         val cards = human.hand.filter { it in state.selected }
@@ -108,40 +115,32 @@ object GameEngine {
 
         val remaining = remainingRequirements(human, state.roundRule)
         if (remaining.isNotEmpty()) {
-            val completePlan = GameRules.findMeldPlan(cards, remaining, useAllCards = true)
-            val singlePlan = if (completePlan == null) {
-                remaining.firstNotNullOfOrNull { type ->
-                    if (GameRules.validInitial(type, cards)) listOf(Meld(type, cards)) else null
-                }
-            } else null
-            val meldsToCreate = completePlan ?: singlePlan
-                ?: return state.copy(
-                    message = when {
-                        cards.size == 3 && remaining.contains(MeldType.LEG) -> "A Trio is 3 cards of the same rank."
-                        cards.size == 4 && remaining.contains(MeldType.STRAIGHT) -> "A Straight is 4 consecutive cards of the same suit."
-                        nextMeldReady(human, state.roundRule) -> "A required meld is available in your hand. Select exactly that Trio or Straight."
-                        else -> "Those selected cards do not form a required meld for this round."
+            val fullPlan = GameRules.findMeldPlan(cards, remaining, useAllCards = true)
+            if (fullPlan == null) {
+                val partial = GameRules.findPartialMeldPlan(cards, remaining)
+                return state.copy(
+                    message = if (partial != null) {
+                        "${partial.size}/${remaining.size} required melds selected. Select the rest of the round goal before lowering."
+                    } else if (contractReady(human, state.roundRule)) {
+                        "Your full round goal is available. Select every required Trio/Straight, then drag the selection to the table."
+                    } else {
+                        "That selection does not match this round's required melds."
                     }
                 )
+            }
 
+            val used = fullPlan.flatMap { it.cards }.toSet()
             val updated = human.copy(
-                hand = sortHand(human.hand.filterNot { it in state.selected }),
-                melds = human.melds + meldsToCreate,
+                hand = sortHand(human.hand.filterNot { it in used }),
+                melds = human.melds + fullPlan,
                 roundPoints = 0
             )
-            val nowRemaining = remainingRequirements(updated, state.roundRule)
             var next = state.copy(
                 players = state.players.toMutableList().also { it[0] = updated },
                 selected = emptySet(),
-                message = if (nowRemaining.isEmpty()) {
-                    "ROUND GOAL COMPLETE. You may now add cards to compatible table melds, then discard."
-                } else {
-                    "Meld placed. ${nowRemaining.size} required meld${if (nowRemaining.size == 1) "" else "s"} remaining."
-                }
+                message = "ROUND GOAL LOWERED. You may add cards to legal table melds, then discard."
             )
-            if (updated.hand.isEmpty() && contractComplete(updated, state.roundRule)) {
-                next = finishRound(next, 0)
-            }
+            if (updated.hand.isEmpty()) next = finishRound(next, 0)
             return next
         }
 
@@ -161,7 +160,7 @@ object GameEngine {
         if (state.phase != TurnPhase.ACTION || state.currentPlayer != 0) return state
         val human = state.players.first()
         if (!contractComplete(human, state.roundRule)) {
-            return state.copy(message = "Complete the round goal before adding cards to existing melds.")
+            return state.copy(message = "Lower the complete round goal before adding cards to existing melds.")
         }
         if (state.selected.isEmpty()) return state
         val cards = human.hand.filter { it in state.selected }
@@ -178,7 +177,7 @@ object GameEngine {
 
         val human = state.players.first()
         if (human.hand.size == 1 && !contractComplete(human, state.roundRule)) {
-            return state.copy(message = "Complete this round's goal before going out.")
+            return state.copy(message = "You must lower this round's complete goal before going out.")
         }
 
         val card = state.selected.first()
@@ -221,7 +220,6 @@ object GameEngine {
             steals = human.steals + if (fromDiscard) 1 else 0
         )
         val fullGoalReady = contractReady(updated, state.roundRule)
-        val oneMeldReady = nextMeldReady(updated, state.roundRule)
 
         return state.copy(
             players = state.players.toMutableList().also { it[0] = updated },
@@ -230,10 +228,9 @@ object GameEngine {
             phase = TurnPhase.ACTION,
             selected = emptySet(),
             message = when {
-                fullGoalReady && !contractComplete(updated, state.roundRule) -> "ROUND GOAL READY — select and meld the required groups."
-                oneMeldReady -> "A required Trio or Straight is ready to meld."
-                fromDiscard -> "Discard taken: +2 points. Meld if possible, then discard."
-                else -> "Card drawn. Meld if possible, then discard."
+                fullGoalReady && !contractComplete(updated, state.roundRule) -> "ROUND GOAL READY — select all required melds and drag them to the table."
+                fromDiscard -> "Discard taken: +2 points. Lower if ready, then discard."
+                else -> "Card drawn. Lower if ready, then discard."
             }
         )
     }
@@ -249,13 +246,13 @@ object GameEngine {
         return state.copy(
             currentPlayer = 0,
             phase = TurnPhase.DRAW,
-            message = "Your turn. Drag DRAW or DISCARD into your hand."
+            message = "Your turn. Drag DRAW or the available DISCARD into your hand."
         )
     }
 
     private fun playAiTurn(start: GameState, index: Int): GameState {
         var state = aiDraw(start, index)
-        state = aiLayContracts(state, index)
+        state = aiLowerFullGoal(state, index)
         state = aiShedCards(state, index)
 
         if (state.players[index].hand.isEmpty() && contractComplete(state.players[index], state.roundRule)) {
@@ -292,8 +289,8 @@ object GameEngine {
 
         val player = state.players[index]
         val topDiscard = discard.lastOrNull()
-        val strategicSteal = topDiscard != null && shouldAiSteal(player, topDiscard, state)
-        val useDiscard = topDiscard != null && (strategicSteal || draw.isEmpty())
+        val strategicTake = topDiscard != null && shouldAiTakeDiscard(player, topDiscard, state)
+        val useDiscard = topDiscard != null && (strategicTake || draw.isEmpty())
         val card = when {
             useDiscard -> topDiscard!!
             draw.isNotEmpty() -> draw.first()
@@ -312,13 +309,12 @@ object GameEngine {
         )
     }
 
-    private fun shouldAiSteal(player: PlayerState, card: Card, state: GameState): Boolean {
+    private fun shouldAiTakeDiscard(player: PlayerState, card: Card, state: GameState): Boolean {
         if (state.difficulty == Difficulty.EASY) return false
         val remaining = remainingRequirements(player, state.roundRule)
-        if (remaining.any { type ->
-                findMeld(player.hand + card, type) != null && findMeld(player.hand, type) == null
-            }
-        ) return true
+        val improvesGoal = GameRules.findMeldPlan(player.hand + card, remaining, useAllCards = false) != null &&
+            GameRules.findMeldPlan(player.hand, remaining, useAllCards = false) == null
+        if (improvesGoal) return true
 
         if (state.difficulty == Difficulty.HARD) {
             return player.hand.any { existing ->
@@ -329,33 +325,17 @@ object GameEngine {
         return false
     }
 
-    private fun aiLayContracts(start: GameState, index: Int): GameState {
-        var state = start
-        while (true) {
-            val player = state.players[index]
-            val remaining = remainingRequirements(player, state.roundRule)
-            if (remaining.isEmpty()) return state
-
-            var typeFound: MeldType? = null
-            var cardsFound: List<Card>? = null
-            for (type in remaining) {
-                val candidate = findMeld(player.hand, type)
-                if (candidate != null) {
-                    typeFound = type
-                    cardsFound = candidate
-                    break
-                }
-            }
-            val type = typeFound ?: return state
-            val cards = cardsFound ?: return state
-
-            val updated = player.copy(
-                hand = sortHand(player.hand.filterNot { it in cards }),
-                melds = player.melds + Meld(type, cards)
-            )
-            state = state.copy(players = state.players.toMutableList().also { it[index] = updated })
-            if (updated.hand.isEmpty()) return state
-        }
+    private fun aiLowerFullGoal(start: GameState, index: Int): GameState {
+        val player = start.players[index]
+        if (contractComplete(player, start.roundRule)) return start
+        val required = remainingRequirements(player, start.roundRule)
+        val plan = GameRules.findMeldPlan(player.hand, required, useAllCards = false) ?: return start
+        val used = plan.flatMap { it.cards }.toSet()
+        val updated = player.copy(
+            hand = sortHand(player.hand.filterNot { it in used }),
+            melds = player.melds + plan
+        )
+        return start.copy(players = start.players.toMutableList().also { it[index] = updated })
     }
 
     private fun aiShedCards(start: GameState, index: Int): GameState {
@@ -419,13 +399,13 @@ object GameEngine {
         MeldType.ROYAL_STRAIGHT -> combinations(hand, 13).firstOrNull { GameRules.validInitial(type, it) }
     }
 
-    /** Two decks are used, therefore matching-rank cards may repeat a suit. */
     private fun findTrio(hand: List<Card>): List<Card>? {
         val joker = hand.firstOrNull { it.isJoker }
         val groups = hand.filterNot { it.isJoker }.groupBy { it.rank }
-        for (cards in groups.values.sortedByDescending { it.size }) {
-            if (cards.size >= 3) return cards.take(3)
-            if (cards.size >= 2 && joker != null) return cards.take(2) + joker
+        for (cards in groups.values.sortedByDescending { it.mapNotNull { card -> card.suit }.distinct().size }) {
+            val distinct = cards.distinctBy { it.suit }
+            if (distinct.size >= 3) return distinct.take(3)
+            if (distinct.size >= 2 && joker != null) return distinct.take(2) + joker
         }
         return null
     }
@@ -524,7 +504,7 @@ object GameEngine {
             discardPile = listOf(firstDiscard),
             currentPlayer = 0,
             phase = TurnPhase.DRAW,
-            message = "Round ${rule.number}. Drag DRAW or DISCARD into your hand."
+            message = "Round ${rule.number}. Drag DRAW or the available DISCARD into your hand."
         )
     }
 
