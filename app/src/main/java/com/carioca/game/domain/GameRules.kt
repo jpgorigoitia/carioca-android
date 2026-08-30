@@ -83,6 +83,66 @@ object GameRules {
         }
     }
 
+    fun minimumCards(type: MeldType): Int = when (type) {
+        MeldType.LEG -> 3
+        MeldType.STRAIGHT -> 4
+        MeldType.CRAZY_STRAIGHT,
+        MeldType.COLOUR_STRAIGHT,
+        MeldType.ROYAL_STRAIGHT -> 13
+    }
+
+    fun requiredTypes(rule: RoundRule): List<MeldType> {
+        rule.special?.let { return listOf(it) }
+        return buildList {
+            repeat(rule.legs) { add(MeldType.LEG) }
+            repeat(rule.straights) { add(MeldType.STRAIGHT) }
+        }
+    }
+
+    fun requiredCardCount(rule: RoundRule): Int = requiredTypes(rule).sumOf(::minimumCards)
+
+    /**
+     * Finds disjoint melds that satisfy every requested type.
+     * When [useAllCards] is false the hand may contain unrelated cards; the smallest legal
+     * contract melds are selected. When true every supplied card must belong to the returned
+     * melds, allowing a player to drag an entire completed contract onto the table at once.
+     */
+    fun findMeldPlan(
+        cards: List<Card>,
+        required: List<MeldType>,
+        useAllCards: Boolean = false
+    ): List<Meld>? {
+        if (required.isEmpty()) return if (!useAllCards || cards.isEmpty()) emptyList() else null
+        if (cards.size < required.sumOf(::minimumCards)) return null
+
+        fun search(pool: List<Card>, requirementIndex: Int): List<Meld>? {
+            if (requirementIndex >= required.size) {
+                return if (!useAllCards || pool.isEmpty()) emptyList() else null
+            }
+
+            val type = required[requirementIndex]
+            val minimum = minimumCards(type)
+            val minimumForRest = required.drop(requirementIndex + 1).sumOf(::minimumCards)
+            val maximum = if (useAllCards) pool.size - minimumForRest else minimum
+            if (maximum < minimum) return null
+
+            val sizes = if (useAllCards) (minimum..maximum) else minimum..minimum
+            for (size in sizes) {
+                for (candidate in combinations(pool, size)) {
+                    if (!valid(type, candidate)) continue
+                    val remainingPool = pool.toMutableList().also { remaining ->
+                        candidate.forEach { card -> remaining.remove(card) }
+                    }
+                    val rest = search(remainingPool, requirementIndex + 1) ?: continue
+                    return listOf(Meld(type, candidate)) + rest
+                }
+            }
+            return null
+        }
+
+        return search(cards, 0)
+    }
+
     private fun sequenceFits(values: List<Int>, jokers: Int): Boolean {
         if (values.isEmpty() || values.distinct().size != values.size) return false
 
@@ -92,6 +152,27 @@ object GameRules {
         val aceLow = gaps(values)
         val aceHigh = gaps(values.map { if (it == 1) 14 else it })
         return minOf(aceLow, aceHigh) <= jokers
+    }
+
+    private fun <T> combinations(items: List<T>, size: Int): Sequence<List<T>> = sequence {
+        if (size <= 0 || size > items.size) return@sequence
+        val picked = mutableListOf<T>()
+
+        suspend fun SequenceScope<List<T>>.walk(start: Int) {
+            if (picked.size == size) {
+                yield(picked.toList())
+                return
+            }
+            val needed = size - picked.size
+            val lastStart = items.size - needed
+            for (index in start..lastStart) {
+                picked += items[index]
+                walk(index + 1)
+                picked.removeAt(picked.lastIndex)
+            }
+        }
+
+        walk(0)
     }
 
     fun score(hand: List<Card>, steals: Int = 0, perfectCut: Boolean = false): Int =
