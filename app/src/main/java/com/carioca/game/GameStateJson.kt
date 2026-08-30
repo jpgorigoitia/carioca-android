@@ -26,6 +26,8 @@ object GameStateJson {
         .put("message", state.message)
         .put("roundWinner", state.roundWinner ?: JSONObject.NULL)
         .put("gameWinner", state.gameWinner ?: JSONObject.NULL)
+        .put("pendingNextPlayer", state.pendingNextPlayer ?: JSONObject.NULL)
+        .put("stealQueue", JSONArray().apply { state.stealQueue.forEach { put(it) } })
 
     fun decode(value: Any): GameState {
         val obj = when (value) {
@@ -33,6 +35,7 @@ object GameStateJson {
             is String -> JSONObject(value)
             else -> JSONObject(value.toString())
         }
+        val stealArray = obj.optJSONArray("stealQueue") ?: JSONArray()
         return GameState(
             mode = GameMode.valueOf(obj.getString("mode")),
             difficulty = Difficulty.valueOf(obj.optString("difficulty", Difficulty.MEDIUM.name)),
@@ -45,7 +48,9 @@ object GameStateJson {
             selected = emptySet(),
             message = obj.optString("message", ""),
             roundWinner = nullableInt(obj, "roundWinner"),
-            gameWinner = nullableInt(obj, "gameWinner")
+            gameWinner = nullableInt(obj, "gameWinner"),
+            pendingNextPlayer = nullableInt(obj, "pendingNextPlayer"),
+            stealQueue = (0 until stealArray.length()).map { stealArray.getInt(it) }
         )
     }
 
@@ -90,7 +95,8 @@ object GameStateJson {
         copy = obj.optInt("copy", 0)
     )
 
-    private fun nullableInt(obj: JSONObject, key: String): Int? = if (!obj.has(key) || obj.isNull(key)) null else obj.getInt(key)
+    private fun nullableInt(obj: JSONObject, key: String): Int? =
+        if (!obj.has(key) || obj.isNull(key)) null else obj.getInt(key)
 
     private fun <T> decodeArray(array: JSONArray, decoder: (JSONObject) -> T): List<T> =
         (0 until array.length()).map { decoder(array.getJSONObject(it)) }
