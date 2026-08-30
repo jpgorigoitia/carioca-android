@@ -2,7 +2,7 @@ package com.carioca.game.domain
 
 import kotlin.random.Random
 
-enum class TurnPhase { DRAW, ACTION, ROUND_OVER, GAME_OVER }
+enum class TurnPhase { DRAW, ACTION, STEAL_WINDOW, ROUND_OVER, GAME_OVER }
 
 data class Meld(val type: MeldType, val cards: List<Card>)
 
@@ -28,7 +28,9 @@ data class GameState(
     val selected: Set<Card> = emptySet(),
     val message: String = "Draw from the deck or take the discard.",
     val roundWinner: Int? = null,
-    val gameWinner: Int? = null
+    val gameWinner: Int? = null,
+    val pendingNextPlayer: Int? = null,
+    val stealQueue: List<Int> = emptyList()
 ) {
     val roundRule: RoundRule get() = GameRules.rounds[roundIndex]
 }
@@ -42,10 +44,7 @@ object GameEngine {
     ): GameState {
         require(totalPlayers in 2..4)
         val players = (0 until totalPlayers).map { index ->
-            PlayerState(
-                name = if (index == 0) "You" else "AI $index",
-                isHuman = index == 0
-            )
+            PlayerState(name = if (index == 0) "You" else "AI $index", isHuman = index == 0)
         }
         return dealRound(mode, difficulty, 0, players, seed)
     }
@@ -65,17 +64,14 @@ object GameEngine {
         return remaining
     }
 
-    fun contractComplete(player: PlayerState, rule: RoundRule): Boolean =
-        remainingRequirements(player, rule).isEmpty()
+    fun contractComplete(player: PlayerState, rule: RoundRule): Boolean = remainingRequirements(player, rule).isEmpty()
 
-    /** Full round objective can be lowered now. */
     fun contractReady(player: PlayerState, rule: RoundRule): Boolean {
         val remaining = remainingRequirements(player, rule)
         if (remaining.isEmpty()) return true
         return GameRules.findMeldPlan(player.hand, remaining, useAllCards = false) != null
     }
 
-    /** At least one constituent group exists; useful for selection hints only. */
     fun nextMeldReady(player: PlayerState, rule: RoundRule): Boolean =
         remainingRequirements(player, rule).any { type -> findMeld(player.hand, type) != null }
 
@@ -99,12 +95,26 @@ object GameEngine {
 
     fun drawFromDeck(state: GameState): GameState = drawHuman(state, fromDiscard = false)
 
-    fun stealDiscard(state: GameState): GameState = drawHuman(state, fromDiscard = true)
+    /** Normal draw choice: taking the top discard on your own turn is not a +2 steal. */
+    fun takeDiscard(state: GameState): GameState = drawHuman(state, fromDiscard = true)
 
-    /**
-     * First lower: every required group for the round must be committed simultaneously.
-     * After lowering, cards may be added to existing table melds.
-     */
+    /** Compatibility alias used by older UI. This is now a normal discard draw, not a steal. */
+    fun stealDiscard(state: GameState): GameState = takeDiscard(state)
+
+    fun canHumanSteal(state: GameState): Boolean =
+        state.phase == TurnPhase.STEAL_WINDOW && state.currentPlayer == 0 && state.discardPile.isNotEmpty()
+
+    /** Out-of-turn steal. The +2 penalty is recorded here and only here. */
+    fun stealAvailableDiscard(state: GameState): GameState {
+        if (!canHumanSteal(state)) return state
+        return continueLocalTurns(applySteal(state, 0))
+    }
+
+    fun passSteal(state: GameState): GameState {
+        if (state.phase != TurnPhase.STEAL_WINDOW || state.currentPlayer != 0) return state
+        return continueLocalTurns(passCurrentStealCandidate(state))
+    }
+
     fun createMeld(state: GameState): GameState {
         if (state.phase != TurnPhase.ACTION || state.currentPlayer != 0) return state
         if (state.selected.isEmpty()) return state.copy(message = "Select the cards for this round's goal first.")
@@ -147,10 +157,7 @@ object GameEngine {
         val added = addCardsToAnyMeld(state, actorIndex = 0, cards = cards)
             ?: return state.copy(message = "Drop those cards directly on a compatible table meld.")
 
-        val next = added.copy(
-            selected = emptySet(),
-            message = "Cards added. Drag one card to DISCARD when finished."
-        )
+        val next = added.copy(selected = emptySet(), message = "Cards added. Drag one card to DISCARD when finished.")
         return if (next.players.first().hand.isEmpty()) finishRound(next, 0) else next
     }
 
@@ -182,19 +189,14 @@ object GameEngine {
 
         val card = state.selected.first()
         val updated = human.copy(hand = sortHand(human.hand - card))
-        var next = state.copy(
+        val discarded = state.copy(
             players = state.players.toMutableList().also { it[0] = updated },
             discardPile = state.discardPile + card,
-            selected = emptySet(),
-            message = "AI players are taking their turns."
+            selected = emptySet()
         )
 
-        if (updated.hand.isEmpty() && contractComplete(updated, state.roundRule)) {
-            return finishRound(next, 0)
-        }
-
-        next = next.copy(currentPlayer = if (state.players.size > 1) 1 else 0, phase = TurnPhase.DRAW)
-        return runAiTurns(next)
+        if (updated.hand.isEmpty() && contractComplete(updated, state.roundRule)) return finishRound(discarded, 0)
+        return continueLocalTurns(openStealWindow(discarded, discarder = 0))
     }
 
     private fun drawHuman(state: GameState, fromDiscard: Boolean): GameState {
@@ -210,15 +212,10 @@ object GameEngine {
         }
 
         val card = (if (fromDiscard) discard.lastOrNull() else draw.firstOrNull())
-            ?: return state.copy(
-                message = if (fromDiscard) "The discard pile is empty." else "The draw pile is empty."
-            )
+            ?: return state.copy(message = if (fromDiscard) "The discard pile is empty." else "The draw pile is empty.")
 
         val human = state.players.first()
-        val updated = human.copy(
-            hand = sortHand(human.hand + card),
-            steals = human.steals + if (fromDiscard) 1 else 0
-        )
+        val updated = human.copy(hand = sortHand(human.hand + card))
         val fullGoalReady = contractReady(updated, state.roundRule)
 
         return state.copy(
@@ -227,27 +224,37 @@ object GameEngine {
             discardPile = if (fromDiscard) discard.dropLast(1) else discard,
             phase = TurnPhase.ACTION,
             selected = emptySet(),
+            pendingNextPlayer = null,
+            stealQueue = emptyList(),
             message = when {
                 fullGoalReady && !contractComplete(updated, state.roundRule) -> "ROUND GOAL READY — select all required melds and drag them to the table."
-                fromDiscard -> "Discard taken: +2 points. Lower if ready, then discard."
+                fromDiscard -> "Discard taken. Lower if ready, then discard."
                 else -> "Card drawn. Lower if ready, then discard."
             }
         )
     }
 
-    private fun runAiTurns(start: GameState): GameState {
+    private fun continueLocalTurns(start: GameState): GameState {
         var state = start
-        while (state.phase == TurnPhase.DRAW && state.currentPlayer != 0) {
-            state = playAiTurn(state, state.currentPlayer)
+        while (true) {
             if (state.phase == TurnPhase.ROUND_OVER || state.phase == TurnPhase.GAME_OVER) return state
-            val next = (state.currentPlayer + 1) % state.players.size
-            state = state.copy(currentPlayer = next, phase = TurnPhase.DRAW)
+
+            if (state.phase == TurnPhase.STEAL_WINDOW) {
+                state = resolveAiStealCandidates(state)
+                if (state.phase == TurnPhase.STEAL_WINDOW && state.currentPlayer == 0) return state
+                continue
+            }
+
+            if (state.phase == TurnPhase.DRAW) {
+                if (state.currentPlayer == 0) {
+                    return state.copy(message = "Your turn. Drag DRAW or the top DISCARD into your hand.")
+                }
+                state = playAiTurn(state, state.currentPlayer)
+                continue
+            }
+
+            return state
         }
-        return state.copy(
-            currentPlayer = 0,
-            phase = TurnPhase.DRAW,
-            message = "Your turn. Drag DRAW or the available DISCARD into your hand."
-        )
     }
 
     private fun playAiTurn(start: GameState, index: Int): GameState {
@@ -263,15 +270,16 @@ object GameEngine {
         if (player.hand.isEmpty()) return state
         val discardCard = chooseAiDiscard(player.hand, state.difficulty)
         val updated = player.copy(hand = sortHand(player.hand - discardCard))
-        state = state.copy(
+        val discarded = state.copy(
             players = state.players.toMutableList().also { it[index] = updated },
-            discardPile = state.discardPile + discardCard
+            discardPile = state.discardPile + discardCard,
+            selected = emptySet()
         )
 
         return if (updated.hand.isEmpty() && contractComplete(updated, state.roundRule)) {
-            finishRound(state, index)
+            finishRound(discarded, index)
         } else {
-            state.copy(phase = TurnPhase.DRAW)
+            openStealWindow(discarded, discarder = index)
         }
     }
 
@@ -296,16 +304,15 @@ object GameEngine {
             draw.isNotEmpty() -> draw.first()
             else -> return state
         }
-        val updated = player.copy(
-            hand = sortHand(player.hand + card),
-            steals = player.steals + if (useDiscard) 1 else 0
-        )
+        val updated = player.copy(hand = sortHand(player.hand + card))
 
         return state.copy(
             players = state.players.toMutableList().also { it[index] = updated },
             drawPile = if (useDiscard) draw else draw.drop(1),
             discardPile = if (useDiscard) discard.dropLast(1) else discard,
-            phase = TurnPhase.ACTION
+            phase = TurnPhase.ACTION,
+            pendingNextPlayer = null,
+            stealQueue = emptyList()
         )
     }
 
@@ -315,11 +322,25 @@ object GameEngine {
         val improvesGoal = GameRules.findMeldPlan(player.hand + card, remaining, useAllCards = false) != null &&
             GameRules.findMeldPlan(player.hand, remaining, useAllCards = false) == null
         if (improvesGoal) return true
-
         if (state.difficulty == Difficulty.HARD) {
             return player.hand.any { existing ->
-                !existing.isJoker && !card.isJoker &&
-                    (existing.rank == card.rank || existing.suit == card.suit)
+                !existing.isJoker && !card.isJoker && (existing.rank == card.rank || existing.suit == card.suit)
+            }
+        }
+        return false
+    }
+
+    private fun shouldAiStealOutOfTurn(player: PlayerState, card: Card, state: GameState): Boolean {
+        if (state.difficulty == Difficulty.EASY) return false
+        if (!contractComplete(player, state.roundRule)) {
+            val remaining = remainingRequirements(player, state.roundRule)
+            val before = GameRules.findMeldPlan(player.hand, remaining, useAllCards = false)
+            val after = GameRules.findMeldPlan(player.hand + card, remaining, useAllCards = false)
+            if (before == null && after != null) return true
+        }
+        if (state.difficulty == Difficulty.HARD) {
+            return player.hand.any { existing ->
+                !existing.isJoker && !card.isJoker && (existing.rank == card.rank || existing.suit == card.suit)
             }
         }
         return false
@@ -356,6 +377,93 @@ object GameEngine {
             }
         }
         return state
+    }
+
+    private fun openStealWindow(state: GameState, discarder: Int): GameState {
+        val count = state.players.size
+        if (count <= 2) {
+            val next = (discarder + 1) % count
+            return state.copy(
+                currentPlayer = next,
+                phase = TurnPhase.DRAW,
+                pendingNextPlayer = null,
+                stealQueue = emptyList(),
+                message = "${state.players[next].name}'s turn."
+            )
+        }
+
+        val next = (discarder + 1) % count
+        val candidates = mutableListOf<Int>()
+        var seat = (next + 1) % count
+        while (seat != discarder) {
+            candidates += seat
+            seat = (seat + 1) % count
+        }
+
+        if (candidates.isEmpty()) {
+            return state.copy(currentPlayer = next, phase = TurnPhase.DRAW, pendingNextPlayer = null, stealQueue = emptyList())
+        }
+
+        val first = candidates.first()
+        return state.copy(
+            currentPlayer = first,
+            phase = TurnPhase.STEAL_WINDOW,
+            pendingNextPlayer = next,
+            stealQueue = candidates,
+            selected = emptySet(),
+            message = if (first == 0) "Available to steal · +2 points. Drag DISCARD into your hand or PASS." else "${state.players[first].name} may steal the discard."
+        )
+    }
+
+    private fun resolveAiStealCandidates(start: GameState): GameState {
+        var state = start
+        while (state.phase == TurnPhase.STEAL_WINDOW && state.currentPlayer != 0) {
+            val candidate = state.currentPlayer
+            val card = state.discardPile.lastOrNull() ?: return finishStealWindow(state)
+            state = if (shouldAiStealOutOfTurn(state.players[candidate], card, state)) {
+                applySteal(state, candidate)
+            } else {
+                passCurrentStealCandidate(state)
+            }
+        }
+        return state
+    }
+
+    private fun applySteal(state: GameState, seat: Int): GameState {
+        if (state.phase != TurnPhase.STEAL_WINDOW || seat != state.currentPlayer) return state
+        val card = state.discardPile.lastOrNull() ?: return finishStealWindow(state)
+        val player = state.players[seat]
+        val updated = player.copy(hand = sortHand(player.hand + card), steals = player.steals + 1)
+        val stolen = state.copy(
+            players = state.players.toMutableList().also { it[seat] = updated },
+            discardPile = state.discardPile.dropLast(1),
+            message = "${updated.name} stole the discard · +2 points."
+        )
+        return finishStealWindow(stolen)
+    }
+
+    private fun passCurrentStealCandidate(state: GameState): GameState {
+        if (state.phase != TurnPhase.STEAL_WINDOW) return state
+        val remaining = state.stealQueue.drop(1)
+        if (remaining.isEmpty()) return finishStealWindow(state)
+        val nextCandidate = remaining.first()
+        return state.copy(
+            currentPlayer = nextCandidate,
+            stealQueue = remaining,
+            message = if (nextCandidate == 0) "Available to steal · +2 points. Drag DISCARD into your hand or PASS." else "${state.players[nextCandidate].name} may steal the discard."
+        )
+    }
+
+    private fun finishStealWindow(state: GameState): GameState {
+        val next = state.pendingNextPlayer ?: return state.copy(phase = TurnPhase.DRAW, stealQueue = emptyList())
+        return state.copy(
+            currentPlayer = next,
+            phase = TurnPhase.DRAW,
+            pendingNextPlayer = null,
+            stealQueue = emptyList(),
+            selected = emptySet(),
+            message = "${state.players[next].name}'s turn."
+        )
     }
 
     private fun addCardsToMeld(
@@ -419,7 +527,6 @@ object GameEngine {
         if (size <= 0 || size > items.size) return emptyList()
         val result = mutableListOf<List<T>>()
         val picked = mutableListOf<T>()
-
         fun walk(start: Int) {
             if (picked.size == size) {
                 result += picked.toList()
@@ -433,7 +540,6 @@ object GameEngine {
                 picked.removeAt(picked.lastIndex)
             }
         }
-
         walk(0)
         return result
     }
@@ -463,11 +569,9 @@ object GameEngine {
             selected = emptySet(),
             roundWinner = winner,
             gameWinner = gameWinner,
-            message = if (gameOver) {
-                "Game complete. ${scored[gameWinner ?: winner].name} wins with the lowest score."
-            } else {
-                "${scored[winner].name} went out. Round complete."
-            }
+            pendingNextPlayer = null,
+            stealQueue = emptyList(),
+            message = if (gameOver) "Game complete. ${scored[gameWinner ?: winner].name} wins with the lowest score." else "${scored[winner].name} went out. Round complete."
         )
     }
 
@@ -481,18 +585,10 @@ object GameEngine {
         val rule = GameRules.rounds[roundIndex]
         val deck = GameRules.deck().shuffled(Random(seed)).toMutableList()
         val hands = List(previousPlayers.size) { mutableListOf<Card>() }
-
-        repeat(rule.deal) {
-            hands.indices.forEach { playerIndex -> hands[playerIndex].add(deck.removeAt(0)) }
-        }
+        repeat(rule.deal) { hands.indices.forEach { playerIndex -> hands[playerIndex].add(deck.removeAt(0)) } }
         val firstDiscard = deck.removeAt(0)
         val players = previousPlayers.mapIndexed { index, player ->
-            player.copy(
-                hand = sortHand(hands[index]),
-                melds = emptyList(),
-                roundPoints = 0,
-                steals = 0
-            )
+            player.copy(hand = sortHand(hands[index]), melds = emptyList(), roundPoints = 0, steals = 0)
         }
 
         return GameState(
@@ -504,7 +600,7 @@ object GameEngine {
             discardPile = listOf(firstDiscard),
             currentPlayer = 0,
             phase = TurnPhase.DRAW,
-            message = "Round ${rule.number}. Drag DRAW or the available DISCARD into your hand."
+            message = "Round ${rule.number}. Drag DRAW or the top DISCARD into your hand."
         )
     }
 
