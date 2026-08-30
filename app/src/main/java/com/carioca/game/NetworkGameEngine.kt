@@ -43,9 +43,7 @@ object NetworkGameEngine {
                 selected = emptySet(),
                 message = if (remaining.size == 1) "Contract complete. Add to the table or discard." else "Meld laid. ${remaining.size - 1} contract meld(s) remaining."
             )
-            if (updated.hand.isEmpty() && com.carioca.game.domain.GameEngine.contractComplete(updated, state.roundRule)) {
-                next = finishRound(next, seat)
-            }
+            if (updated.hand.isEmpty() && com.carioca.game.domain.GameEngine.contractComplete(updated, state.roundRule)) next = finishRound(next, seat)
             return next
         }
 
@@ -59,9 +57,7 @@ object NetworkGameEngine {
         if (!validTurn(state, seat, TurnPhase.ACTION)) return state.copy(message = "It is not your action phase.")
         val player = state.players[seat]
         if (card !in player.hand) return state.copy(message = "That card is no longer in your hand.")
-        if (player.hand.size == 1 && !com.carioca.game.domain.GameEngine.contractComplete(player, state.roundRule)) {
-            return state.copy(message = "Complete this round's contract before going out.")
-        }
+        if (player.hand.size == 1 && !com.carioca.game.domain.GameEngine.contractComplete(player, state.roundRule)) return state.copy(message = "Complete this round's contract before going out.")
 
         val updated = player.copy(hand = sortHand(player.hand - card))
         var next = state.copy(
@@ -69,15 +65,9 @@ object NetworkGameEngine {
             discardPile = state.discardPile + card,
             selected = emptySet()
         )
-        if (updated.hand.isEmpty() && com.carioca.game.domain.GameEngine.contractComplete(updated, state.roundRule)) {
-            return finishRound(next, seat)
-        }
+        if (updated.hand.isEmpty() && com.carioca.game.domain.GameEngine.contractComplete(updated, state.roundRule)) return finishRound(next, seat)
         val nextSeat = (seat + 1) % state.players.size
-        next = next.copy(
-            currentPlayer = nextSeat,
-            phase = TurnPhase.DRAW,
-            message = "${next.players[nextSeat].name}'s turn. Draw from the deck or steal the discard."
-        )
+        next = next.copy(currentPlayer = nextSeat, phase = TurnPhase.DRAW, message = "${next.players[nextSeat].name}'s turn. Draw from the deck or steal the discard.")
         return next
     }
 
@@ -98,14 +88,11 @@ object NetworkGameEngine {
             draw = recycled.first
             discard = recycled.second
         }
-        val card = if (fromDiscard) discard.lastOrNull() else draw.firstOrNull()
+        val card = (if (fromDiscard) discard.lastOrNull() else draw.firstOrNull())
             ?: return state.copy(message = if (fromDiscard) "The discard pile is empty." else "The draw pile is empty.")
 
         val player = state.players[seat]
-        val updated = player.copy(
-            hand = sortHand(player.hand + card),
-            steals = player.steals + if (fromDiscard) 1 else 0
-        )
+        val updated = player.copy(hand = sortHand(player.hand + card), steals = player.steals + if (fromDiscard) 1 else 0)
         return state.copy(
             players = state.players.toMutableList().also { it[seat] = updated },
             drawPile = if (fromDiscard) draw else draw.drop(1),
@@ -116,8 +103,7 @@ object NetworkGameEngine {
         )
     }
 
-    private fun validTurn(state: GameState, seat: Int, phase: TurnPhase): Boolean =
-        seat in state.players.indices && state.currentPlayer == seat && state.phase == phase
+    private fun validTurn(state: GameState, seat: Int, phase: TurnPhase): Boolean = seat in state.players.indices && state.currentPlayer == seat && state.phase == phase
 
     private fun addCardsToAnyMeld(state: GameState, actorSeat: Int, cards: List<Card>): GameState? {
         if (cards.isEmpty()) return null
@@ -127,7 +113,6 @@ object NetworkGameEngine {
                 val meld = target.melds[meldIndex]
                 val combined = meld.cards + cards
                 if (!GameRules.valid(meld.type, combined)) continue
-
                 val players = state.players.toMutableList()
                 val targetMelds = target.melds.toMutableList().also { it[meldIndex] = meld.copy(cards = combined) }
                 players[playerIndex] = target.copy(melds = targetMelds)
@@ -153,8 +138,7 @@ object NetworkGameEngine {
             selected = emptySet(),
             roundWinner = winner,
             gameWinner = gameWinner,
-            message = if (gameOver) "Game complete. ${scored[gameWinner ?: winner].name} wins with the lowest score."
-            else "${scored[winner].name} went out. Round complete."
+            message = if (gameOver) "Game complete. ${scored[gameWinner ?: winner].name} wins with the lowest score." else "${scored[winner].name} went out. Round complete."
         )
     }
 
@@ -164,9 +148,7 @@ object NetworkGameEngine {
         val hands = List(previousPlayers.size) { mutableListOf<Card>() }
         repeat(rule.deal) { hands.indices.forEach { seat -> hands[seat].add(deck.removeAt(0)) } }
         val firstDiscard = deck.removeAt(0)
-        val players = previousPlayers.mapIndexed { index, player ->
-            player.copy(hand = sortHand(hands[index]), melds = emptyList(), roundPoints = 0, steals = 0, isHuman = true)
-        }
+        val players = previousPlayers.mapIndexed { index, player -> player.copy(hand = sortHand(hands[index]), melds = emptyList(), roundPoints = 0, steals = 0, isHuman = true) }
         return GameState(
             mode = mode,
             difficulty = Difficulty.MEDIUM,
@@ -187,7 +169,5 @@ object NetworkGameEngine {
         return discard.dropLast(1).shuffled() to listOf(top)
     }
 
-    private fun sortHand(cards: List<Card>): List<Card> = cards.sortedWith(
-        compareBy<Card>({ it.isJoker }, { it.suit?.ordinal ?: 9 }, { it.rank.order }, { it.deck }, { it.copy })
-    )
+    private fun sortHand(cards: List<Card>): List<Card> = cards.sortedWith(compareBy<Card>({ it.isJoker }, { it.suit?.ordinal ?: 9 }, { it.rank.order }, { it.deck }, { it.copy }))
 }
