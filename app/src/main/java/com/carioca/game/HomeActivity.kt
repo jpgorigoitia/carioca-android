@@ -66,7 +66,7 @@ private fun CariocaHome(context: Context) {
             HomeTexture()
             when (screen) {
                 HomeScreen.HOME -> HomeMenu(
-                    playAi = { context.startActivity(Intent(context, MainActivity::class.java)) },
+                    playAi = { context.startActivity(Intent(context, AiGameActivity::class.java)) },
                     playOnline = { screen = HomeScreen.ONLINE }
                 )
                 HomeScreen.ONLINE -> OnlineMenu(
