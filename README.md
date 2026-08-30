@@ -15,11 +15,22 @@ This app is intentionally **just the game**:
 
 The interaction model takes inspiration from polished social card-game apps, while the code, artwork, branding, rules implementation, and UI are original to this project.
 
-## Current build — 0.3.0
+## Current build — 0.5.0
 
-### Home
-- Clean Navy / Deep Blue / Teal / Gold visual system
-- Two primary paths: **Play Online** and **Play vs AI**
+### Visual and touch table
+- Responsive portrait and landscape layouts; landscape is the full table presentation
+- Orientation changes preserve the live game instead of restarting it
+- Navy / deep-blue / teal / gold visual system with a felt table
+- Original compact chibi-style player avatars and active-turn glow
+- Proper card faces and patterned card backs
+- Visible contract rail, table melds, scores, card counts and turn messages
+- Tap cards to build a selection
+- Grab and drag the selected group onto the table to lay it
+- Drag a single hand card onto the discard pile to finish a turn
+- During draw phase, drag the deck or glowing discard into the hand
+- Legal drop targets highlight during a drag
+- Floating dragged-card feedback and steal sound/SFX toggle
+- Hand sorting by suit or rank in AI practice
 
 ### Play vs AI
 - Playable 2–4 player Carioca practice game
@@ -31,16 +42,19 @@ The interaction model takes inspiration from polished social card-game apps, whi
 - Legal discard-steal shine and sound cue
 - Scoring: +2 per steal, −10 exact cut, no −30 going-out bonus
 
-### Online rooms
+### Online play
 - Live Supabase-backed room creation and joining
 - Private rooms with 6-character invitation codes
 - Public waiting-room discovery
 - 2–4 player table capacity
-- Automatic lobby refresh so joins appear on all connected devices
+- Host starts the game after at least two players join
+- Shared deal, draw/steal, meld, discard, score and round state across devices
+- Server-side turn ownership and optimistic state-version checks reject out-of-turn or stale updates
+- Opponent cards remain face-down in the Android UI
+- Automatic game-state refresh keeps connected phones synchronized
 - Random local player tokens; raw room tables are not exposed to the client
 
-### Online gameplay status
-The room/lobby transport is live and tested across the backend API. The **next implementation layer is synchronized card-turn state** (dealing, draw/steal, meld actions, discard, scoring and round progression across multiple phones). Until that reducer is wired to the room transport, online rooms are real but online card turns are not yet playable.
+The current multiplayer transport uses short-interval state polling rather than a final Realtime/Broadcast implementation. It is suitable for functional testing of multiplayer game flow; lower-latency realtime transport is a later optimization.
 
 ## Build
 
