@@ -21,35 +21,36 @@ class GameRulesTest {
     }
 
     @Test
-    fun trioIsExactlyThreeSameRankCardsWhenFirstMelded() {
+    fun trioIsThreeSameRankDifferentSuitCards() {
         val trio = listOf(
             Card(Rank.SEVEN, Suit.CLUBS, deck = 0),
             Card(Rank.SEVEN, Suit.HEARTS, deck = 0),
-            Card(Rank.SEVEN, Suit.CLUBS, deck = 1)
+            Card(Rank.SEVEN, Suit.SPADES, deck = 1)
         )
         assertTrue(GameRules.validInitial(MeldType.LEG, trio))
     }
 
     @Test
-    fun duplicateSuitIsLegalInTrioBecauseTwoDecksAreUsed() {
+    fun duplicateNaturalSuitIsRejectedInTrio() {
         val trio = listOf(
             Card(Rank.NINE, Suit.SPADES, deck = 0),
             Card(Rank.NINE, Suit.SPADES, deck = 1),
             Card(Rank.NINE, Suit.DIAMONDS, deck = 0)
         )
-        assertTrue(GameRules.validInitial(MeldType.LEG, trio))
+        assertFalse(GameRules.validInitial(MeldType.LEG, trio))
     }
 
     @Test
-    fun fourCardsCannotBeUsedAsTheInitialTrioButCanExtendOne() {
-        val four = listOf(
-            Card(Rank.QUEEN, Suit.CLUBS, deck = 0),
-            Card(Rank.QUEEN, Suit.HEARTS, deck = 0),
-            Card(Rank.QUEEN, Suit.CLUBS, deck = 1),
-            Card(Rank.QUEEN, Suit.SPADES, deck = 0)
-        )
-        assertFalse(GameRules.validInitial(MeldType.LEG, four))
+    fun naturalTrioMayContainFourDifferentSuits() {
+        val four = Suit.entries.map { suit -> Card(Rank.QUEEN, suit, deck = 0) }
+        assertTrue(GameRules.validInitial(MeldType.LEG, four))
         assertTrue(GameRules.valid(MeldType.LEG, four))
+    }
+
+    @Test
+    fun trioCannotGrowBeyondFourCards() {
+        val five = Suit.entries.map { suit -> Card(Rank.QUEEN, suit, deck = 0) } + Card(Rank.JOKER)
+        assertFalse(GameRules.valid(MeldType.LEG, five))
     }
 
     @Test
@@ -75,7 +76,7 @@ class GameRulesTest {
     }
 
     @Test
-    fun fiveCardRunIsExtensionNotInitialStraight() {
+    fun fiveCardStraightCanBeLowered() {
         val cards = listOf(
             Card(Rank.FOUR, Suit.CLUBS),
             Card(Rank.FIVE, Suit.CLUBS),
@@ -83,8 +84,7 @@ class GameRulesTest {
             Card(Rank.SEVEN, Suit.CLUBS),
             Card(Rank.EIGHT, Suit.CLUBS)
         )
-        assertFalse(GameRules.validInitial(MeldType.STRAIGHT, cards))
-        assertTrue(GameRules.valid(MeldType.STRAIGHT, cards))
+        assertTrue(GameRules.validInitial(MeldType.STRAIGHT, cards))
     }
 
     @Test
@@ -96,6 +96,15 @@ class GameRulesTest {
             Card(Rank.THREE, Suit.CLUBS)
         )
         assertFalse(GameRules.validInitial(MeldType.STRAIGHT, cards))
+    }
+
+    @Test
+    fun colourAndRoyalStraightsRejectJokers() {
+        val ranks = Rank.entries.filter { it != Rank.JOKER }
+        val colourWithJoker = ranks.take(12).mapIndexed { i, rank -> Card(rank, if (i % 2 == 0) Suit.HEARTS else Suit.DIAMONDS) } + Card(Rank.JOKER)
+        val royalWithJoker = ranks.take(12).map { rank -> Card(rank, Suit.SPADES) } + Card(Rank.JOKER)
+        assertFalse(GameRules.valid(MeldType.COLOUR_STRAIGHT, colourWithJoker))
+        assertFalse(GameRules.valid(MeldType.ROYAL_STRAIGHT, royalWithJoker))
     }
 
     @Test
