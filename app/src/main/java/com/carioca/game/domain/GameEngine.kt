@@ -167,7 +167,7 @@ object GameEngine {
             discard = recycled.second
         }
 
-        val card = if (fromDiscard) discard.lastOrNull() else draw.firstOrNull()
+        val card = (if (fromDiscard) discard.lastOrNull() else draw.firstOrNull())
             ?: return state.copy(
                 message = if (fromDiscard) "The discard pile is empty." else "The draw pile is empty."
             )
@@ -246,17 +246,22 @@ object GameEngine {
 
         val player = state.players[index]
         val topDiscard = discard.lastOrNull()
-        val takeDiscard = topDiscard != null && shouldAiSteal(player, topDiscard, state)
-        val card = if (takeDiscard) topDiscard else draw.firstOrNull() ?: topDiscard ?: return state
+        val strategicSteal = topDiscard != null && shouldAiSteal(player, topDiscard, state)
+        val useDiscard = topDiscard != null && (strategicSteal || draw.isEmpty())
+        val card = when {
+            useDiscard -> topDiscard!!
+            draw.isNotEmpty() -> draw.first()
+            else -> return state
+        }
         val updated = player.copy(
             hand = sortHand(player.hand + card),
-            steals = player.steals + if (takeDiscard) 1 else 0
+            steals = player.steals + if (useDiscard) 1 else 0
         )
 
         return state.copy(
             players = state.players.toMutableList().also { it[index] = updated },
-            drawPile = if (takeDiscard) draw else draw.drop(1),
-            discardPile = if (takeDiscard) discard.dropLast(1) else discard,
+            drawPile = if (useDiscard) draw else draw.drop(1),
+            discardPile = if (useDiscard) discard.dropLast(1) else discard,
             phase = TurnPhase.ACTION
         )
     }
