@@ -101,12 +101,7 @@ object GameRules {
 
     fun requiredCardCount(rule: RoundRule): Int = requiredTypes(rule).sumOf(::minimumCards)
 
-    /**
-     * Finds disjoint melds that satisfy every requested type.
-     * When [useAllCards] is false the hand may contain unrelated cards; the smallest legal
-     * contract melds are selected. When true every supplied card must belong to the returned
-     * melds, allowing a player to drag an entire completed contract onto the table at once.
-     */
+    /** Finds disjoint melds for the full requested contract. */
     fun findMeldPlan(
         cards: List<Card>,
         required: List<MeldType>,
@@ -126,13 +121,11 @@ object GameRules {
             val maximum = if (useAllCards) pool.size - minimumForRest else minimum
             if (maximum < minimum) return null
 
-            val sizes = if (useAllCards) (minimum..maximum) else minimum..minimum
-            for (size in sizes) {
+            for (size in minimum..maximum) {
                 for (candidate in combinations(pool, size)) {
                     if (!valid(type, candidate)) continue
-                    val remainingPool = pool.toMutableList().also { remaining ->
-                        candidate.forEach { card -> remaining.remove(card) }
-                    }
+                    val remainingPool = pool.toMutableList()
+                    candidate.forEach { remainingPool.remove(it) }
                     val rest = search(remainingPool, requirementIndex + 1) ?: continue
                     return listOf(Meld(type, candidate)) + rest
                 }
@@ -145,22 +138,20 @@ object GameRules {
 
     private fun sequenceFits(values: List<Int>, jokers: Int): Boolean {
         if (values.isEmpty() || values.distinct().size != values.size) return false
-
         fun gaps(valuesToCheck: List<Int>): Int =
             valuesToCheck.sorted().zipWithNext().sumOf { (a, b) -> b - a - 1 }
-
         val aceLow = gaps(values)
         val aceHigh = gaps(values.map { if (it == 1) 14 else it })
         return minOf(aceLow, aceHigh) <= jokers
     }
 
-    private fun <T> combinations(items: List<T>, size: Int): Sequence<List<T>> = sequence {
-        if (size <= 0 || size > items.size) return@sequence
+    private fun <T> combinations(items: List<T>, size: Int): List<List<T>> {
+        if (size <= 0 || size > items.size) return emptyList()
+        val result = mutableListOf<List<T>>()
         val picked = mutableListOf<T>()
-
-        suspend fun SequenceScope<List<T>>.walk(start: Int) {
+        fun walk(start: Int) {
             if (picked.size == size) {
-                yield(picked.toList())
+                result += picked.toList()
                 return
             }
             val needed = size - picked.size
@@ -171,8 +162,8 @@ object GameRules {
                 picked.removeAt(picked.lastIndex)
             }
         }
-
         walk(0)
+        return result
     }
 
     fun score(hand: List<Card>, steals: Int = 0, perfectCut: Boolean = false): Int =
