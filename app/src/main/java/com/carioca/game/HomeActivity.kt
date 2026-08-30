@@ -120,30 +120,10 @@ private fun HomeHero(modifier: Modifier) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1.25f)) {
-                Text(
-                    "CARIOCA",
-                    color = Color.White,
-                    fontSize = 44.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.sp,
-                    style = TextStyle(shadow = TitleShadowHome)
-                )
-                Text(
-                    "JUST THE GAME",
-                    color = GoldHome,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 2.sp,
-                    style = TextStyle(shadow = TitleShadowHome)
-                )
+                Text("CARIOCA", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, style = TextStyle(shadow = TitleShadowHome))
+                Text("JUST THE GAME", color = GoldHome, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp, style = TextStyle(shadow = TitleShadowHome))
                 Spacer(Modifier.height(10.dp))
-                Text(
-                    "Play the table, not an economy.",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    style = TextStyle(shadow = TitleShadowHome)
-                )
+                Text("Play the table, not an economy.", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, style = TextStyle(shadow = TitleShadowHome))
                 Spacer(Modifier.height(5.dp))
                 Text(
                     "Play Carioca with friends or practice against AI. No coins, gems, betting, ad walls, or pay-to-play mechanics.",
@@ -163,35 +143,11 @@ private fun HomeHero(modifier: Modifier) {
 @Composable
 private fun HomeActions(modifier: Modifier, playOnline: () -> Unit, playAi: () -> Unit) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            "Choose a table",
-            color = Color.White,
-            fontSize = 21.sp,
-            fontWeight = FontWeight.Black,
-            style = TextStyle(shadow = TitleShadowHome)
-        )
-        HeroCard(
-            "PLAY ONLINE",
-            "Create or join a 2–4 player table.",
-            "2–4 PLAYERS",
-            playOnline,
-            Modifier.weight(1f)
-        )
-        HeroCard(
-            "PLAY VS AI",
-            "Choose mode, players and AI difficulty, then start immediately.",
-            "AI PRACTICE",
-            playAi,
-            Modifier.weight(1f)
-        )
+        Text("Choose a table", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = TitleShadowHome))
+        HeroCard("PLAY ONLINE", "Create or join a 2–4 player table.", "2–4 PLAYERS", playOnline, Modifier.weight(1f))
+        HeroCard("PLAY VS AI", "Choose mode, players and AI difficulty, then start immediately.", "AI PRACTICE", playAi, Modifier.weight(1f))
         Surface(color = Color.Black.copy(alpha = .28f), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-            Text(
-                "Horizontal-only · Touch, grab, drag and drop cards",
-                Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                color = SoftWhiteHome,
-                fontSize = 9.sp,
-                textAlign = TextAlign.Center
-            )
+            Text("Horizontal-only · Touch, grab, drag and drop cards", Modifier.padding(horizontal = 10.dp, vertical = 7.dp), color = SoftWhiteHome, fontSize = 9.sp, textAlign = TextAlign.Center)
         }
     }
 }
@@ -201,9 +157,7 @@ private fun HeroCard(title: String, subtitle: String, badge: String, onClick: ()
     Surface(
         color = Color.White.copy(alpha = .09f),
         shape = RoundedCornerShape(19.dp),
-        modifier = modifier.fillMaxWidth()
-            .border(1.dp, Color.White.copy(alpha = .15f), RoundedCornerShape(19.dp))
-            .clickable(onClick = onClick)
+        modifier = modifier.fillMaxWidth().border(1.dp, Color.White.copy(alpha = .15f), RoundedCornerShape(19.dp)).clickable(onClick = onClick)
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(43.dp).clip(CircleShape).background(TealHome.copy(alpha = .38f)), contentAlignment = Alignment.Center) {
@@ -268,39 +222,68 @@ private fun OnlineMenu(back: () -> Unit, onRoom: (OnlineRoom, String) -> Unit) {
         Text("Play Online", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = TitleShadowHome))
         Text("No account required. Choose a display name for this table.", color = SoftWhiteHome)
         OutlinedTextField(value = name, onValueChange = { if (it.length <= 24) name = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Section("Game") { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ChoiceChip("Regular · 8", mode == "REGULAR") { mode = "REGULAR" }; ChoiceChip("Special · 11", mode == "SPECIAL") { mode = "SPECIAL" } } }
-        Section("Players") { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (2..4).forEach { count -> ChoiceChip(count.toString(), maxPlayers == count) { maxPlayers = count } } }
+        Section("Game") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChoiceChip("Regular · 8", mode == "REGULAR") { mode = "REGULAR" }
+                ChoiceChip("Special · 11", mode == "SPECIAL") { mode = "SPECIAL" }
+            }
+        }
+        Section("Players") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                (2..4).forEach { count -> ChoiceChip(count.toString(), maxPlayers == count) { maxPlayers = count } }
+            }
+        }
         Section("Table") {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ChoiceChip("Private", visibility == "PRIVATE") { visibility = "PRIVATE" }; ChoiceChip("Public", visibility == "PUBLIC") { visibility = "PUBLIC" } }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChoiceChip("Private", visibility == "PRIVATE") { visibility = "PRIVATE" }
+                ChoiceChip("Public", visibility == "PUBLIC") { visibility = "PUBLIC" }
+            }
             Text(if (visibility == "PRIVATE") "Friends join using your 6-character code." else "Your waiting table appears publicly.", color = SoftWhiteHome, fontSize = 12.sp)
         }
         Button(onClick = {
             if (name.isBlank()) error = "Enter a display name first." else network {
-                val t = MultiplayerClient.newPlayerToken(); val r = withContext(Dispatchers.IO) { MultiplayerClient.createRoom(name, t, mode, visibility, maxPlayers) }; onRoom(r, t)
+                val t = MultiplayerClient.newPlayerToken()
+                val r = withContext(Dispatchers.IO) { MultiplayerClient.createRoom(name, t, mode, visibility, maxPlayers) }
+                onRoom(r, t)
             }
-        }, enabled = !loading, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp)) { Text(if (loading) "Connecting…" else "Create Table", fontWeight = FontWeight.Bold) }
+        }, enabled = !loading, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp)) {
+            Text(if (loading) "Connecting…" else "Create Table", fontWeight = FontWeight.Bold)
+        }
         HorizontalDivider(color = Color.White.copy(alpha = .15f))
         Text("Join with code", color = Color.White, fontWeight = FontWeight.Bold)
         OutlinedTextField(value = code, onValueChange = { code = it.uppercase().filter(Char::isLetterOrDigit).take(6) }, label = { Text("Room code") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters), singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedButton(onClick = {
             if (name.isBlank() || code.length != 6) error = "Enter your name and a 6-character room code." else network {
-                val t = MultiplayerClient.newPlayerToken(); val r = withContext(Dispatchers.IO) { MultiplayerClient.joinRoom(code, name, t) }; onRoom(r, t)
+                val t = MultiplayerClient.newPlayerToken()
+                val r = withContext(Dispatchers.IO) { MultiplayerClient.joinRoom(code, name, t) }
+                onRoom(r, t)
             }
         }, enabled = !loading, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Join Table") }
         HorizontalDivider(color = Color.White.copy(alpha = .15f))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("Public tables", color = Color.White, fontWeight = FontWeight.Bold); TextButton(onClick = { network { publicRooms = withContext(Dispatchers.IO) { MultiplayerClient.publicRooms() } } }) { Text("Refresh") } }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Public tables", color = Color.White, fontWeight = FontWeight.Bold)
+            TextButton(onClick = { network { publicRooms = withContext(Dispatchers.IO) { MultiplayerClient.publicRooms() } } }) { Text("Refresh") }
+        }
         if (publicRooms.isEmpty()) Text("No public tables loaded yet.", color = MutedHome, fontSize = 12.sp)
         publicRooms.forEach { publicRoom ->
             Surface(color = Color.White.copy(alpha = .08f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text("${publicRoom.mode.lowercase().replaceFirstChar { it.uppercase() }} · ${publicRoom.playerCount}/${publicRoom.maxPlayers}", color = Color.White, fontWeight = FontWeight.Bold); Text(publicRoom.code, color = GoldHome, fontSize = 12.sp) }
+                    Column(Modifier.weight(1f)) {
+                        Text("${publicRoom.mode.lowercase().replaceFirstChar { it.uppercase() }} · ${publicRoom.playerCount}/${publicRoom.maxPlayers}", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(publicRoom.code, color = GoldHome, fontSize = 12.sp)
+                    }
                     TextButton(onClick = {
-                        if (name.isBlank()) error = "Enter a display name first." else network { val t = MultiplayerClient.newPlayerToken(); val r = withContext(Dispatchers.IO) { MultiplayerClient.joinRoom(publicRoom.code, name, t) }; onRoom(r, t) }
+                        if (name.isBlank()) error = "Enter a display name first." else network {
+                            val t = MultiplayerClient.newPlayerToken()
+                            val r = withContext(Dispatchers.IO) { MultiplayerClient.joinRoom(publicRoom.code, name, t) }
+                            onRoom(r, t)
+                        }
                     }) { Text("Join") }
                 }
             }
         }
-        error?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 13.sp) }; Spacer(Modifier.height(24.dp))
+        error?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 13.sp) }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -326,7 +309,9 @@ private fun OnlineLobby(initial: OnlineRoom, token: String, back: () -> Unit) {
         TextButton(onClick = back) { Text("← Leave lobby", color = Color.White) }
         Text("Table ${room.code}", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = TitleShadowHome))
         Text("${room.mode.lowercase().replaceFirstChar { it.uppercase() }} · ${room.visibility.lowercase().replaceFirstChar { it.uppercase() }} · ${room.players.size}/${room.maxPlayers}", color = GoldHome, fontWeight = FontWeight.Bold)
-        Surface(color = GoldHome.copy(alpha = .12f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) { Text("Share this code with friends: ${room.code}", Modifier.padding(16.dp), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
+        Surface(color = GoldHome.copy(alpha = .12f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+            Text("Share this code with friends: ${room.code}", Modifier.padding(16.dp), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        }
         Text("Players", color = Color.White, fontWeight = FontWeight.Bold)
         repeat(room.maxPlayers) { seat ->
             val player = room.players.firstOrNull { it.seat == seat }
@@ -357,7 +342,8 @@ private fun OnlineLobby(initial: OnlineRoom, token: String, back: () -> Unit) {
                 Text(if (room.status == "PLAYING") "Game started — opening table…" else "Connected. Waiting for the host to start the game.", Modifier.padding(16.dp), color = SoftWhiteHome, fontSize = 13.sp)
             }
         }
-        error?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }; Spacer(Modifier.height(24.dp))
+        error?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
