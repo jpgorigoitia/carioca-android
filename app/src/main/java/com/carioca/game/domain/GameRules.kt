@@ -28,11 +28,7 @@ data class RoundRule(
 )
 
 object GameRules {
-    /*
-     * Internal enum LEG is retained only for save/network compatibility.
-     * Player-facing terminology is Trio.
-     * Regular mode follows the 8-round Carioca sequence established for this app.
-     */
+    // LEG is retained internally for compatibility; every player-facing screen calls it Trio.
     val rounds = listOf(
         RoundRule(1, legs = 2),
         RoundRule(2, legs = 1, straights = 1),
@@ -56,7 +52,6 @@ object GameRules {
         )
     }
 
-    /** Exact size required when a new contract meld is first placed on the table. */
     fun minimumCards(type: MeldType): Int = when (type) {
         MeldType.LEG -> 3
         MeldType.STRAIGHT -> 4
@@ -65,41 +60,42 @@ object GameRules {
         MeldType.ROYAL_STRAIGHT -> 13
     }
 
-    /**
-     * Validates a newly-created contract meld.
-     * A Trio starts with exactly 3 cards. A Straight starts with exactly 4.
-     * They may be extended only after they are on the table.
-     */
-    fun validInitial(type: MeldType, cards: List<Card>): Boolean =
-        cards.size == minimumCards(type) && validCore(type, cards, allowExtended = false)
+    private fun maximumCards(type: MeldType): Int = when (type) {
+        MeldType.LEG -> 4
+        MeldType.STRAIGHT -> 13
+        MeldType.CRAZY_STRAIGHT,
+        MeldType.COLOUR_STRAIGHT,
+        MeldType.ROYAL_STRAIGHT -> 13
+    }
 
-    /** Validates a meld already on the table after cards have been added to it. */
-    fun valid(type: MeldType, cards: List<Card>): Boolean = validCore(type, cards, allowExtended = true)
+    /** A legal meld being lowered for the first time. Regular melds may exceed their minimum. */
+    fun validInitial(type: MeldType, cards: List<Card>): Boolean = valid(type, cards)
 
-    private fun validCore(type: MeldType, cards: List<Card>, allowExtended: Boolean): Boolean {
+    /** A legal meld on the table, including after legal cards have been added. */
+    fun valid(type: MeldType, cards: List<Card>): Boolean {
         if (cards.isEmpty()) return false
         val jokers = cards.count { it.isJoker }
         if (jokers > 1) return false
         val natural = cards.filterNot { it.isJoker }
 
         return when (type) {
-            MeldType.LEG -> {
-                if (cards.size < 3) false
-                else if (!allowExtended && cards.size != 3) false
-                else natural.isNotEmpty() && natural.map { it.rank }.distinct().size == 1
-                // Two decks are in play: duplicate suits are legal in a Trio.
-            }
+            MeldType.LEG ->
+                cards.size in 3..4 &&
+                    natural.isNotEmpty() &&
+                    natural.map { it.rank }.distinct().size == 1 &&
+                    natural.mapNotNull { it.suit }.distinct().size == natural.size
 
-            MeldType.STRAIGHT -> {
-                if (cards.size < 4) false
-                else if (!allowExtended && cards.size != 4) false
-                else natural.isNotEmpty() &&
+            MeldType.STRAIGHT ->
+                cards.size in 4..13 &&
+                    natural.isNotEmpty() &&
                     natural.map { it.suit }.distinct().size == 1 &&
-                    sequenceFits(natural.map { it.rank.order }, jokers, cards.size)
-            }
+                    natural.map { it.rank }.distinct().size == natural.size &&
+                    sequenceFits(natural.map { it.rank.order }, jokers)
 
             MeldType.CRAZY_STRAIGHT ->
-                cards.size == 13 && natural.map { it.rank }.distinct().size == natural.size
+                cards.size == 13 &&
+                    natural.map { it.rank }.distinct().size == natural.size &&
+                    natural.size == 13 - jokers
 
             MeldType.COLOUR_STRAIGHT ->
                 cards.size == 13 && jokers == 0 &&
@@ -121,18 +117,20 @@ object GameRules {
         }
     }
 
+    /** Minimum number of cards represented by the round objective; individual melds may be longer. */
     fun requiredCardCount(rule: RoundRule): Int = requiredTypes(rule).sumOf(::minimumCards)
 
-    /** Finds disjoint exact-size contract melds from a hand/selection. */
+    /**
+     * Finds all required melds at once. When useAllCards=true, every supplied card must belong
+     * to the lowering action. This is the first-lower rule for Carioca.
+     */
     fun findMeldPlan(
         cards: List<Card>,
         required: List<MeldType>,
         useAllCards: Boolean = false
     ): List<Meld>? {
         if (required.isEmpty()) return if (!useAllCards || cards.isEmpty()) emptyList() else null
-        val exactRequired = required.sumOf(::minimumCards)
-        if (cards.size < exactRequired) return null
-        if (useAllCards && cards.size != exactRequired) return null
+        if (cards.size < required.sumOf(::minimumCards)) return null
 
         fun search(pool: List<Card>, requirementIndex: Int): List<Meld>? {
             if (requirementIndex >= required.size) {
@@ -140,14 +138,20 @@ object GameRules {
             }
 
             val type = required[requirementIndex]
-            val size = minimumCards(type)
-            if (pool.size < size) return null
-            for (candidate in combinations(pool, size)) {
-                if (!validInitial(type, candidate)) continue
-                val remainingPool = pool.toMutableList()
-                candidate.forEach { remainingPool.remove(it) }
-                val rest = search(remainingPool, requirementIndex + 1) ?: continue
-                return listOf(Meld(type, candidate)) + rest
+            val minimum = minimumCards(type)
+            val minimumForRest = required.drop(requirementIndex + 1).sumOf(::minimumCards)
+            val maximumByPool = pool.size - minimumForRest
+            val maximum = minOf(maximumCards(type), maximumByPool)
+            if (maximum < minimum) return null
+
+            for (size in minimum..maximum) {
+                for (candidate in combinations(pool, size)) {
+                    if (!validInitial(type, candidate)) continue
+                    val remainingPool = pool.toMutableList()
+                    candidate.forEach { remainingPool.remove(it) }
+                    val rest = search(remainingPool, requirementIndex + 1) ?: continue
+                    return listOf(Meld(type, candidate)) + rest
+                }
             }
             return null
         }
@@ -155,21 +159,29 @@ object GameRules {
         return search(cards, 0)
     }
 
-    private fun sequenceFits(values: List<Int>, jokers: Int, totalSize: Int): Boolean {
-        if (values.isEmpty() || values.distinct().size != values.size) return false
-
-        fun canFit(sorted: List<Int>): Boolean {
-            if (sorted.isEmpty()) return false
-            val internalGaps = sorted.zipWithNext().sumOf { (a, b) -> b - a - 1 }
-            if (internalGaps > jokers) return false
-            val unusedJokers = jokers - internalGaps
-            val span = sorted.last() - sorted.first() + 1 + unusedJokers
-            return span <= totalSize && totalSize <= 13
+    /**
+     * Used only for interaction feedback while the player is selecting cards. It never lowers
+     * a partial round objective; it only reports that the current selection forms some of the
+     * required groups cleanly.
+     */
+    fun findPartialMeldPlan(cards: List<Card>, required: List<MeldType>): List<Meld>? {
+        if (cards.isEmpty() || required.isEmpty()) return null
+        for (count in required.size downTo 1) {
+            for (subset in combinations(required, count)) {
+                val plan = findMeldPlan(cards, subset, useAllCards = true)
+                if (plan != null) return plan
+            }
         }
+        return null
+    }
 
-        val aceLow = values.sorted()
-        val aceHigh = values.map { if (it == 1) 14 else it }.sorted()
-        return canFit(aceLow) || canFit(aceHigh)
+    private fun sequenceFits(values: List<Int>, jokers: Int): Boolean {
+        if (values.isEmpty() || values.distinct().size != values.size) return false
+        fun gaps(valuesToCheck: List<Int>): Int =
+            valuesToCheck.sorted().zipWithNext().sumOf { (a, b) -> b - a - 1 }
+        val aceLow = gaps(values)
+        val aceHigh = gaps(values.map { if (it == 1) 14 else it })
+        return minOf(aceLow, aceHigh) <= jokers
     }
 
     private fun <T> combinations(items: List<T>, size: Int): List<List<T>> {
