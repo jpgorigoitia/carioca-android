@@ -147,7 +147,7 @@ private fun AiSetup(
                     Text("AI PRACTICE", color = AiGold, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp, style = TextStyle(shadow = AiShadow))
                     Spacer(Modifier.height(10.dp))
                     Text("Cards are the controls.", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, style = TextStyle(shadow = AiShadow))
-                    Text("Drag a pile into your hand to draw. Tap cards to select them. Drag selected cards to the table to meld. Drag a card onto DISCARD to end your turn. Drag cards sideways in your hand to rearrange them.", color = AiSoft, fontSize = 10.sp, lineHeight = 14.sp)
+                    Text("Drag a pile into your hand to draw. Tap each required Trio or Straight to keep its cards selected. When the complete round goal is selected, drag the group to the table. Drag one card onto DISCARD to end the turn. Drag cards sideways in your hand to rearrange them.", color = AiSoft, fontSize = 10.sp, lineHeight = 14.sp)
                 }
             }
 
@@ -228,9 +228,10 @@ private fun AiTable(mode: GameMode, players: Int, difficulty: Difficulty, onExit
 
     val selectedCards = human.hand.filter { it in state.selected }
     val remaining = GameEngine.remainingRequirements(human, state.roundRule)
-    val fullPlan = if (selectedCards.isNotEmpty()) GameRules.findMeldPlan(selectedCards, remaining, useAllCards = true) else null
-    val singleType = remaining.firstOrNull { type -> selectedCards.isNotEmpty() && GameRules.validInitial(type, selectedCards) }
-    val canMeldSelected = state.currentPlayer == 0 && state.phase == TurnPhase.ACTION && (fullPlan != null || singleType != null)
+    val fullPlan = if (selectedCards.isNotEmpty() && remaining.isNotEmpty()) GameRules.findMeldPlan(selectedCards, remaining, useAllCards = true) else null
+    val partialPlan = if (selectedCards.isNotEmpty() && remaining.isNotEmpty()) GameRules.findPartialMeldPlan(selectedCards, remaining) else null
+    val selectedGroups = partialPlan?.size ?: 0
+    val canLowerGoal = state.currentPlayer == 0 && state.phase == TurnPhase.ACTION && fullPlan != null
 
     fun reorderInHand(card: GameCard, point: Offset) {
         val ordered = handOrder.filter { it in human.hand }.toMutableList()
@@ -246,8 +247,8 @@ private fun AiTable(mode: GameMode, players: Int, difficulty: Difficulty, onExit
         handOrder = ordered
     }
 
-    fun meldSelected() {
-        if (canMeldSelected) state = GameEngine.createMeld(state)
+    fun lowerSelectedGoal() {
+        if (canLowerGoal) state = GameEngine.createMeld(state)
     }
 
     fun dropCard(card: GameCard, point: Offset) {
@@ -293,16 +294,16 @@ private fun AiTable(mode: GameMode, players: Int, difficulty: Difficulty, onExit
                     AiGoalPanel(
                         state = state,
                         selectedCount = selectedCards.size,
-                        canMeld = canMeldSelected,
-                        singleType = singleType,
-                        onMeld = ::meldSelected,
+                        selectedGroups = selectedGroups,
+                        canLower = canLowerGoal,
+                        onLower = ::lowerSelectedGoal,
                         modifier = Modifier.align(Alignment.TopStart).padding(7.dp).width(164.dp)
                     )
 
                     AiMeldArea(
                         state = state,
                         dragPoint = dragPoint,
-                        canCreateMeld = canMeldSelected,
+                        canCreateMeld = canLowerGoal,
                         setTableBounds = { tableBounds = it },
                         onMeldBounds = { target, bounds -> meldBounds = meldBounds + (target to bounds) },
                         modifier = Modifier.fillMaxSize().padding(start = 174.dp, end = 158.dp, top = 6.dp, bottom = 26.dp)
@@ -388,40 +389,55 @@ private fun AiOpponents(state: GameState) {
 private fun AiGoalPanel(
     state: GameState,
     selectedCount: Int,
-    canMeld: Boolean,
-    singleType: MeldType?,
-    onMeld: () -> Unit,
+    selectedGroups: Int,
+    canLower: Boolean,
+    onLower: () -> Unit,
     modifier: Modifier
 ) {
     val player = state.players.first()
     val all = GameRules.requiredTypes(state.roundRule)
     val remaining = GameEngine.remainingRequirements(player, state.roundRule)
-    val completed = all.size - remaining.size
-    val oneReady = GameEngine.nextMeldReady(player, state.roundRule)
+    val complete = GameEngine.contractComplete(player, state.roundRule)
+    val ready = !complete && GameEngine.contractReady(player, state.roundRule)
+    val borderColor = when {
+        complete || canLower -> AiLegal
+        selectedGroups > 0 -> AiGold
+        else -> Color.White.copy(alpha = .10f)
+    }
 
-    Surface(modifier, color = AiInk.copy(alpha = .88f), shape = RoundedCornerShape(13.dp), border = androidx.compose.foundation.BorderStroke(if (oneReady || GameEngine.contractComplete(player, state.roundRule)) 2.dp else 1.dp, if (oneReady || GameEngine.contractComplete(player, state.roundRule)) AiLegal else Color.White.copy(alpha = .10f))) {
+    Surface(modifier, color = AiInk.copy(alpha = .88f), shape = RoundedCornerShape(13.dp), border = androidx.compose.foundation.BorderStroke(if (complete || canLower || selectedGroups > 0) 2.dp else 1.dp, borderColor)) {
         Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("ROUND GOAL", color = AiGold, fontSize = 7.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
             Text(state.roundRule.aiGoalTitle(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = AiShadow))
             Text(state.roundRule.aiGoalExplanation(), color = AiSoft, fontSize = 7.sp, lineHeight = 9.sp)
             HorizontalDivider(color = Color.White.copy(alpha = .10f))
-            Text("Melded $completed/${all.size} · Need ${remaining.size} more", color = if (remaining.isEmpty()) AiLegal else AiSoft, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-            if (remaining.isNotEmpty()) Text("Remaining: ${remaining.joinToString(" + ") { it.aiLabel() }}", color = AiGold, fontSize = 7.sp)
-            Text("Selected: $selectedCount", color = if (selectedCount > 0) Color.White else AiMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+            Text(
+                when {
+                    complete -> "✓ ROUND GOAL LOWERED"
+                    canLower -> "✓ COMPLETE SELECTION READY"
+                    selectedGroups > 0 -> "$selectedGroups/${remaining.size} required groups selected"
+                    ready -> "Goal is available in your hand"
+                    else -> "Select each required group"
+                },
+                color = if (complete || canLower) AiLegal else if (selectedGroups > 0) AiGold else AiSoft,
+                fontSize = 7.sp,
+                fontWeight = FontWeight.Bold
+            )
+            if (!complete && remaining.isNotEmpty()) Text("Required: ${remaining.joinToString(" + ") { it.aiLabel() }}", color = AiGold, fontSize = 7.sp)
+            Text("Selected cards: $selectedCount", color = if (selectedCount > 0) Color.White else AiMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
             Button(
-                onClick = onMeld,
-                enabled = canMeld,
+                onClick = onLower,
+                enabled = canLower,
                 modifier = Modifier.fillMaxWidth().height(36.dp),
                 contentPadding = PaddingValues(horizontal = 5.dp),
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text(
                     when {
-                        canMeld && singleType != null -> "MELD ${singleType.aiLabel().uppercase()}"
-                        canMeld -> "MELD SELECTED"
-                        remaining.firstOrNull() == MeldType.LEG -> "SELECT 3 FOR TRIO"
-                        remaining.firstOrNull() == MeldType.STRAIGHT -> "SELECT 4 FOR STRAIGHT"
-                        else -> "SELECT A MELD"
+                        canLower -> "LOWER ROUND GOAL"
+                        selectedGroups > 0 -> "KEEP SELECTING (${selectedGroups}/${remaining.size})"
+                        complete -> "GOAL LOWERED"
+                        else -> "SELECT FULL GOAL"
                     },
                     fontSize = 7.sp,
                     fontWeight = FontWeight.Black,
@@ -480,7 +496,7 @@ private fun AiPileStation(
                     Text("DISCARD", color = AiGold, fontSize = 8.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = AiShadow))
                 }
             }
-            Text(if (canDraw) "Drag DRAW or DISCARD into your hand" else "Drag one hand card onto DISCARD", color = AiSoft, fontSize = 6.sp, lineHeight = 8.sp, textAlign = TextAlign.Center)
+            Text(if (canDraw) "Drag DRAW or available DISCARD into your hand" else "Drag one hand card onto DISCARD", color = AiSoft, fontSize = 6.sp, lineHeight = 8.sp, textAlign = TextAlign.Center)
         }
     }
 }
@@ -517,7 +533,7 @@ private fun AiMeldArea(
             Text("MELD AREA", color = if (canCreateMeld) AiLegal else Color.White.copy(alpha = .62f), fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
             if (state.players.all { it.melds.isEmpty() }) {
                 Box(Modifier.fillMaxWidth().height(85.dp), contentAlignment = Alignment.Center) {
-                    Text("Select the required Trio or Straight.\nDrag any selected card into this area to place the selected group.", color = Color.White.copy(alpha = .58f), fontSize = 8.sp, lineHeight = 11.sp, textAlign = TextAlign.Center)
+                    Text("Build the round goal by selecting each required Trio/Straight.\nKeep those cards selected. When the full goal is ready, drag the selected group here.", color = Color.White.copy(alpha = .58f), fontSize = 8.sp, lineHeight = 11.sp, textAlign = TextAlign.Center)
                 }
             }
             state.players.forEachIndexed { owner, player ->
@@ -582,7 +598,7 @@ private fun AiHandDock(
                 Text(
                     when {
                         state.phase == TurnPhase.DRAW && humanCanTouch -> "Draw first · cards can still be rearranged"
-                        state.phase == TurnPhase.ACTION && humanCanTouch -> "Tap to select · drag to meld / discard / reorder"
+                        state.phase == TurnPhase.ACTION && humanCanTouch -> "Tap to select · drag to lower / discard / reorder"
                         else -> "AI turn"
                     },
                     color = AiMuted,
@@ -762,10 +778,12 @@ private fun RoundRule.aiGoalTitle(): String {
 }
 
 private fun RoundRule.aiGoalExplanation(): String = when {
-    special != null -> "This special round uses a 13-card ${special.aiLabel()}."
-    legs > 0 && straights > 0 -> "Trio = exactly 3 same-rank cards to start. Straight = exactly 4 consecutive cards of one suit to start. Meld each required group separately."
-    legs > 0 -> "Each Trio starts with exactly 3 cards of the same rank. Because two decks are used, suits may repeat."
-    else -> "Each Straight starts with exactly 4 consecutive cards of one suit."
+    special == MeldType.CRAZY_STRAIGHT -> "13 ranks, mixed suits allowed, at most one Joker."
+    special == MeldType.COLOUR_STRAIGHT -> "13 ranks, all red or all black. No Jokers."
+    special == MeldType.ROYAL_STRAIGHT -> "13 ranks, all the same suit. No Jokers."
+    legs > 0 && straights > 0 -> "Trio: 3–4 same-rank cards with different suits. Straight: 4+ consecutive cards of one suit. Lower every required group together."
+    legs > 0 -> "Each Trio: 3–4 cards of the same rank with different suits. Lower all required Trios together."
+    else -> "Each Straight: 4+ consecutive cards of one suit. Lower all required Straights together."
 }
 
 private fun MeldType.aiLabel(): String = when (this) {
