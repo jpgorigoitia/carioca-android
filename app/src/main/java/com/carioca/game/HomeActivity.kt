@@ -23,8 +23,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -43,6 +45,7 @@ private val FeltHome = Color(0xFF0D5C58)
 private val GoldHome = Color(0xFFFFC857)
 private val SoftWhiteHome = Color(0xFFF2FAFB)
 private val MutedHome = Color(0xFF9FC3CC)
+private val TitleShadowHome = Shadow(Color.Black.copy(alpha = .95f), Offset(2.5f, 2.5f), 4f)
 
 class HomeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,91 +95,146 @@ private fun HomeTexture() {
 
 @Composable
 private fun HomeMenu(playAi: () -> Unit, playOnline: () -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val landscape = maxWidth > maxHeight
-        if (landscape) {
-            Row(Modifier.fillMaxSize().padding(26.dp), horizontalArrangement = Arrangement.spacedBy(26.dp), verticalAlignment = Alignment.CenterVertically) {
-                HomeHero(Modifier.weight(1.05f).fillMaxHeight())
-                HomeActions(Modifier.weight(.95f), playOnline, playAi)
-            }
-        } else {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                HomeHero(Modifier.fillMaxWidth().height(310.dp))
-                HomeActions(Modifier.fillMaxWidth(), playOnline, playAi)
-                Spacer(Modifier.height(12.dp))
-            }
-        }
+    Row(
+        Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        HomeHero(Modifier.weight(1.08f).fillMaxHeight())
+        HomeActions(Modifier.weight(.92f).fillMaxHeight(), playOnline, playAi)
     }
 }
 
 @Composable
 private fun HomeHero(modifier: Modifier) {
-    Box(
-        modifier.clip(RoundedCornerShape(32.dp))
-            .background(Brush.radialGradient(listOf(TealHome.copy(alpha = .55f), FeltHome, NavyHome)))
-            .border(1.dp, GoldHome.copy(alpha = .28f), RoundedCornerShape(32.dp))
-            .padding(24.dp)
+    Surface(
+        modifier = modifier,
+        color = FeltHome,
+        shape = RoundedCornerShape(28.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, GoldHome.copy(alpha = .28f))
     ) {
-        HomeCardFan(Modifier.align(Alignment.CenterEnd).size(220.dp, 190.dp))
-        Column(Modifier.align(Alignment.CenterStart).widthIn(max = 350.dp)) {
-            Text("CARIOCA", color = Color.White, fontSize = 50.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-            Text("JUST THE GAME", color = GoldHome, fontSize = 13.sp, fontWeight = FontWeight.Black, letterSpacing = 2.2.sp)
-            Spacer(Modifier.height(22.dp))
-            Text("Play the table, not an economy.", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-            Text("Free card play with friends or AI practice. No coins, gems, betting, ad walls or pay-to-play mechanics.", color = SoftWhiteHome, fontSize = 14.sp, lineHeight = 20.sp)
-            Spacer(Modifier.height(20.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) { repeat(4) { HomeAvatar(it) } }
+        Row(
+            Modifier.fillMaxSize()
+                .background(Brush.radialGradient(listOf(TealHome.copy(alpha = .55f), FeltHome, NavyHome)))
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1.25f)) {
+                Text(
+                    "CARIOCA",
+                    color = Color.White,
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.sp,
+                    style = TextStyle(shadow = TitleShadowHome)
+                )
+                Text(
+                    "JUST THE GAME",
+                    color = GoldHome,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp,
+                    style = TextStyle(shadow = TitleShadowHome)
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Play the table, not an economy.",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    style = TextStyle(shadow = TitleShadowHome)
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    "Play Carioca with friends or practice against AI. No coins, gems, betting, ad walls, or pay-to-play mechanics.",
+                    color = SoftWhiteHome,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) { repeat(4) { HomeAvatar(it) } }
+            }
+            Spacer(Modifier.width(8.dp))
+            HomeCardFan(Modifier.weight(.75f).fillMaxHeight().padding(vertical = 8.dp))
         }
     }
 }
 
 @Composable
 private fun HomeActions(modifier: Modifier, playOnline: () -> Unit, playAi: () -> Unit) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Choose a table", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black)
-        HeroCard("PLAY ONLINE", "Create a private room, browse public tables, or join a friend by code.", "2–4 PLAYERS", playOnline)
-        HeroCard("PLAY VS AI", "Practice the complete Carioca round flow with Easy, Medium or Hard opponents.", "OFFLINE PRACTICE", playAi)
-        Surface(color = Color.White.copy(alpha = .055f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-            Text("Rotate to landscape for the full table view · Touch, grab, drag and drop cards", Modifier.padding(13.dp), color = MutedHome, fontSize = 11.sp, textAlign = TextAlign.Center)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "Choose a table",
+            color = Color.White,
+            fontSize = 21.sp,
+            fontWeight = FontWeight.Black,
+            style = TextStyle(shadow = TitleShadowHome)
+        )
+        HeroCard(
+            "PLAY ONLINE",
+            "Create or join a 2–4 player table.",
+            "2–4 PLAYERS",
+            playOnline,
+            Modifier.weight(1f)
+        )
+        HeroCard(
+            "PLAY VS AI",
+            "Choose mode, players and AI difficulty, then start immediately.",
+            "AI PRACTICE",
+            playAi,
+            Modifier.weight(1f)
+        )
+        Surface(color = Color.Black.copy(alpha = .28f), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Text(
+                "Horizontal-only · Touch, grab, drag and drop cards",
+                Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                color = SoftWhiteHome,
+                fontSize = 9.sp,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
 
 @Composable
-private fun HeroCard(title: String, subtitle: String, badge: String, onClick: () -> Unit) {
+private fun HeroCard(title: String, subtitle: String, badge: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
-        color = Color.White.copy(alpha = .085f),
-        shape = RoundedCornerShape(23.dp),
-        modifier = Modifier.fillMaxWidth().heightIn(min = 132.dp)
-            .border(1.dp, Color.White.copy(alpha = .13f), RoundedCornerShape(23.dp)).clickable(onClick = onClick)
+        color = Color.White.copy(alpha = .09f),
+        shape = RoundedCornerShape(19.dp),
+        modifier = modifier.fillMaxWidth()
+            .border(1.dp, Color.White.copy(alpha = .15f), RoundedCornerShape(19.dp))
+            .clickable(onClick = onClick)
     ) {
-        Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(52.dp).clip(CircleShape).background(TealHome.copy(alpha = .32f)), contentAlignment = Alignment.Center) { Text(if (title.contains("ONLINE")) "♣" else "♠", color = GoldHome, fontSize = 27.sp) }
-            Spacer(Modifier.width(15.dp))
-            Column(Modifier.weight(1f)) {
-                Text(badge, color = GoldHome, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
-                Text(title, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
-                Spacer(Modifier.height(4.dp)); Text(subtitle, color = SoftWhiteHome, fontSize = 12.sp, lineHeight = 17.sp)
+        Row(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(43.dp).clip(CircleShape).background(TealHome.copy(alpha = .38f)), contentAlignment = Alignment.Center) {
+                Text(if (title.contains("ONLINE")) "♣" else "♠", color = GoldHome, fontSize = 23.sp, style = TextStyle(shadow = TitleShadowHome))
             }
-            Text("›", color = GoldHome, fontSize = 34.sp)
+            Spacer(Modifier.width(11.dp))
+            Column(Modifier.weight(1f)) {
+                Text(badge, color = GoldHome, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, style = TextStyle(shadow = TitleShadowHome))
+                Text(title, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = TitleShadowHome))
+                Spacer(Modifier.height(2.dp))
+                Text(subtitle, color = SoftWhiteHome, fontSize = 10.sp, lineHeight = 13.sp)
+            }
+            Text("›", color = GoldHome, fontSize = 29.sp, style = TextStyle(shadow = TitleShadowHome))
         }
     }
 }
 
 @Composable
 private fun HomeCardFan(modifier: Modifier) {
-    Box(modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
         listOf(Triple("A", "♥", Color(0xFFC93645)), Triple("K", "♠", Color(0xFF0D2438)), Triple("J", "★", TealHome)).forEachIndexed { i, card ->
             Surface(
-                color = Color(0xFFFFFEFB), shape = RoundedCornerShape(15.dp), shadowElevation = 10.dp,
-                modifier = Modifier.size(82.dp, 116.dp).align(Alignment.Center).graphicsLayer {
-                    translationX = (i - 1) * 42.dp.toPx(); translationY = kotlin.math.abs(i - 1) * 10.dp.toPx(); rotationZ = (i - 1) * 12f
+                color = Color(0xFFFFFEFB), shape = RoundedCornerShape(13.dp), shadowElevation = 8.dp,
+                modifier = Modifier.size(70.dp, 100.dp).graphicsLayer {
+                    translationX = (i - 1) * 34.dp.toPx(); translationY = kotlin.math.abs(i - 1) * 8.dp.toPx(); rotationZ = (i - 1) * 12f
                 }
             ) {
-                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                    Text(card.first, color = card.third, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                    Text(card.second, color = card.third, fontSize = 33.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    Text(card.second, color = card.third, fontSize = 13.sp)
+                Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    Text(card.first, color = card.third, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                    Text(card.second, color = card.third, fontSize = 29.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    Text(card.second, color = card.third, fontSize = 11.sp)
                 }
             }
         }
@@ -186,7 +244,7 @@ private fun HomeCardFan(modifier: Modifier) {
 @Composable
 private fun HomeAvatar(index: Int) {
     val accents = listOf(Color(0xFFFF8DA1), Color(0xFF86D7E8), Color(0xFFB4A0FF), Color(0xFF7EE0BD)); val accent = accents[index]
-    Box(Modifier.size(42.dp).clip(CircleShape).background(accent.copy(alpha = .42f)).padding(3.dp)) {
+    Box(Modifier.size(36.dp).clip(CircleShape).background(accent.copy(alpha = .42f)).padding(3.dp)) {
         Canvas(Modifier.fillMaxSize()) {
             val hair = listOf(Color(0xFF49352F), Color(0xFF263A57), Color(0xFF70432D), Color(0xFF302D2B))[index]
             drawCircle(hair, size.minDimension * .43f, Offset(center.x, center.y - size.height * .07f))
@@ -207,11 +265,11 @@ private fun OnlineMenu(back: () -> Unit, onRoom: (OnlineRoom, String) -> Unit) {
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onClick = back) { Text("← Back", color = Color.White) }
-        Text("Play Online", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black)
+        Text("Play Online", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = TitleShadowHome))
         Text("No account required. Choose a display name for this table.", color = SoftWhiteHome)
         OutlinedTextField(value = name, onValueChange = { if (it.length <= 24) name = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Section("Game") { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ChoiceChip("Regular · 8", mode == "REGULAR") { mode = "REGULAR" }; ChoiceChip("Special · 11", mode == "SPECIAL") { mode = "SPECIAL" } } }
-        Section("Players") { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (2..4).forEach { count -> ChoiceChip(count.toString(), maxPlayers == count) { maxPlayers = count } } } }
+        Section("Players") { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (2..4).forEach { count -> ChoiceChip(count.toString(), maxPlayers == count) { maxPlayers = count } } }
         Section("Table") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ChoiceChip("Private", visibility == "PRIVATE") { visibility = "PRIVATE" }; ChoiceChip("Public", visibility == "PUBLIC") { visibility = "PUBLIC" } }
             Text(if (visibility == "PRIVATE") "Friends join using your 6-character code." else "Your waiting table appears publicly.", color = SoftWhiteHome, fontSize = 12.sp)
@@ -266,7 +324,7 @@ private fun OnlineLobby(initial: OnlineRoom, token: String, back: () -> Unit) {
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         TextButton(onClick = back) { Text("← Leave lobby", color = Color.White) }
-        Text("Table ${room.code}", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black)
+        Text("Table ${room.code}", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = TitleShadowHome))
         Text("${room.mode.lowercase().replaceFirstChar { it.uppercase() }} · ${room.visibility.lowercase().replaceFirstChar { it.uppercase() }} · ${room.players.size}/${room.maxPlayers}", color = GoldHome, fontWeight = FontWeight.Bold)
         Surface(color = GoldHome.copy(alpha = .12f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) { Text("Share this code with friends: ${room.code}", Modifier.padding(16.dp), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
         Text("Players", color = Color.White, fontWeight = FontWeight.Bold)
@@ -305,8 +363,15 @@ private fun OnlineLobby(initial: OnlineRoom, token: String, back: () -> Unit) {
 
 @Composable
 private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Surface(color = Color.White.copy(alpha = .07f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text(title, color = Color.White, fontWeight = FontWeight.Bold); content() } }
+    Surface(color = Color.White.copy(alpha = .07f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold)
+            content()
+        }
+    }
 }
 
 @Composable
-private fun RowScope.ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit) { FilterChip(selected = selected, onClick = onClick, label = { Text(text) }) }
+private fun RowScope.ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(selected = selected, onClick = onClick, label = { Text(text) })
+}
