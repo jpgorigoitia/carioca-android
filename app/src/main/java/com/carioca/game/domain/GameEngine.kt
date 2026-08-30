@@ -26,7 +26,7 @@ data class GameState(
     val currentPlayer: Int = 0,
     val phase: TurnPhase = TurnPhase.DRAW,
     val selected: Set<Card> = emptySet(),
-    val message: String = "Draw from the deck or steal the discard.",
+    val message: String = "Draw from the deck or take the discard.",
     val roundWinner: Int? = null,
     val gameWinner: Int? = null
 ) {
@@ -68,11 +68,16 @@ object GameEngine {
     fun contractComplete(player: PlayerState, rule: RoundRule): Boolean =
         remainingRequirements(player, rule).isEmpty()
 
+    /** True when every still-required contract meld can be formed from the current hand. */
     fun contractReady(player: PlayerState, rule: RoundRule): Boolean {
         val remaining = remainingRequirements(player, rule)
         if (remaining.isEmpty()) return true
         return GameRules.findMeldPlan(player.hand, remaining, useAllCards = false) != null
     }
+
+    /** True when at least one still-required Trio/Straight can be placed now. */
+    fun nextMeldReady(player: PlayerState, rule: RoundRule): Boolean =
+        remainingRequirements(player, rule).any { type -> findMeld(player.hand, type) != null }
 
     fun cardsStillRequired(player: PlayerState, rule: RoundRule): Int =
         remainingRequirements(player, rule).sumOf(GameRules::minimumCards)
@@ -89,10 +94,13 @@ object GameEngine {
 
     fun stealDiscard(state: GameState): GameState = drawHuman(state, fromDiscard = true)
 
-    /** Creates one meld or an entire multi-meld round contract from the selected cards. */
+    /**
+     * Creates one exact-size required meld (Trio = 3, Straight = 4), or multiple
+     * exact-size melds when the selected cards cleanly contain several requirements.
+     */
     fun createMeld(state: GameState): GameState {
         if (state.phase != TurnPhase.ACTION || state.currentPlayer != 0) return state
-        if (state.selected.isEmpty()) return state.copy(message = "Select the cards you want to meld.")
+        if (state.selected.isEmpty()) return state.copy(message = "Select cards for a Trio or Straight first.")
 
         val human = state.players.first()
         val cards = human.hand.filter { it in state.selected }
@@ -103,15 +111,16 @@ object GameEngine {
             val completePlan = GameRules.findMeldPlan(cards, remaining, useAllCards = true)
             val singlePlan = if (completePlan == null) {
                 remaining.firstNotNullOfOrNull { type ->
-                    if (GameRules.valid(type, cards)) listOf(Meld(type, cards)) else null
+                    if (GameRules.validInitial(type, cards)) listOf(Meld(type, cards)) else null
                 }
             } else null
             val meldsToCreate = completePlan ?: singlePlan
                 ?: return state.copy(
-                    message = if (contractReady(human, state.roundRule)) {
-                        "Your round goal is ready. Select the complete contract cards and drag them to the table."
-                    } else {
-                        "Those cards do not form a required meld for this round."
+                    message = when {
+                        cards.size == 3 && remaining.contains(MeldType.LEG) -> "A Trio is 3 cards of the same rank."
+                        cards.size == 4 && remaining.contains(MeldType.STRAIGHT) -> "A Straight is 4 consecutive cards of the same suit."
+                        nextMeldReady(human, state.roundRule) -> "A required meld is available in your hand. Select exactly that Trio or Straight."
+                        else -> "Those selected cards do not form a required meld for this round."
                     }
                 )
 
@@ -125,9 +134,9 @@ object GameEngine {
                 players = state.players.toMutableList().also { it[0] = updated },
                 selected = emptySet(),
                 message = if (nowRemaining.isEmpty()) {
-                    "ROUND GOAL COMPLETE. Your meld is on the table; you may now add cards to legal melds."
+                    "ROUND GOAL COMPLETE. You may now add cards to compatible table melds, then discard."
                 } else {
-                    "Meld created. ${nowRemaining.size} contract meld(s) still required."
+                    "Meld placed. ${nowRemaining.size} required meld${if (nowRemaining.size == 1) "" else "s"} remaining."
                 }
             )
             if (updated.hand.isEmpty() && contractComplete(updated, state.roundRule)) {
@@ -137,24 +146,22 @@ object GameEngine {
         }
 
         val added = addCardsToAnyMeld(state, actorIndex = 0, cards = cards)
-            ?: return state.copy(message = "Drop those cards directly on a compatible meld.")
+            ?: return state.copy(message = "Drop those cards directly on a compatible table meld.")
 
         val next = added.copy(
             selected = emptySet(),
-            message = "Cards added to a table meld. Drag one card to DISCARD when finished."
+            message = "Cards added. Drag one card to DISCARD when finished."
         )
         return if (next.players.first().hand.isEmpty()) finishRound(next, 0) else next
     }
 
-    /** Backwards-compatible name used by older UI/tests. */
     fun laySelected(state: GameState): GameState = createMeld(state)
 
-    /** Adds the current selected cards to the exact meld the player dropped them onto. */
     fun addSelectedToMeld(state: GameState, ownerIndex: Int, meldIndex: Int): GameState {
         if (state.phase != TurnPhase.ACTION || state.currentPlayer != 0) return state
         val human = state.players.first()
         if (!contractComplete(human, state.roundRule)) {
-            return state.copy(message = "Complete this round's contract before adding to existing melds.")
+            return state.copy(message = "Complete the round goal before adding cards to existing melds.")
         }
         if (state.selected.isEmpty()) return state
         val cards = human.hand.filter { it in state.selected }
@@ -171,7 +178,7 @@ object GameEngine {
 
         val human = state.players.first()
         if (human.hand.size == 1 && !contractComplete(human, state.roundRule)) {
-            return state.copy(message = "You must complete this round's contract before going out.")
+            return state.copy(message = "Complete this round's goal before going out.")
         }
 
         val card = state.selected.first()
@@ -213,7 +220,8 @@ object GameEngine {
             hand = sortHand(human.hand + card),
             steals = human.steals + if (fromDiscard) 1 else 0
         )
-        val ready = contractReady(updated, state.roundRule)
+        val fullGoalReady = contractReady(updated, state.roundRule)
+        val oneMeldReady = nextMeldReady(updated, state.roundRule)
 
         return state.copy(
             players = state.players.toMutableList().also { it[0] = updated },
@@ -222,9 +230,10 @@ object GameEngine {
             phase = TurnPhase.ACTION,
             selected = emptySet(),
             message = when {
-                ready && !contractComplete(updated, state.roundRule) -> "GOAL READY — select the contract cards and drag them to the table to meld."
-                fromDiscard -> "Discard stolen: +2 points. Create melds or drag a card to DISCARD."
-                else -> "Card acquired. Create melds or drag a card to DISCARD."
+                fullGoalReady && !contractComplete(updated, state.roundRule) -> "ROUND GOAL READY — select and meld the required groups."
+                oneMeldReady -> "A required Trio or Straight is ready to meld."
+                fromDiscard -> "Discard taken: +2 points. Meld if possible, then discard."
+                else -> "Card drawn. Meld if possible, then discard."
             }
         )
     }
@@ -240,7 +249,7 @@ object GameEngine {
         return state.copy(
             currentPlayer = 0,
             phase = TurnPhase.DRAW,
-            message = "Your turn. Drag DRAW or the glowing discard into your hand."
+            message = "Your turn. Drag DRAW or DISCARD into your hand."
         )
     }
 
@@ -403,31 +412,27 @@ object GameEngine {
     }
 
     private fun findMeld(hand: List<Card>, type: MeldType): List<Card>? = when (type) {
-        MeldType.LEG -> findLeg(hand)
+        MeldType.LEG -> findTrio(hand)
         MeldType.STRAIGHT -> findStraight(hand)
         MeldType.CRAZY_STRAIGHT,
         MeldType.COLOUR_STRAIGHT,
-        MeldType.ROYAL_STRAIGHT -> combinations(hand, 13).firstOrNull { GameRules.valid(type, it) }
+        MeldType.ROYAL_STRAIGHT -> combinations(hand, 13).firstOrNull { GameRules.validInitial(type, it) }
     }
 
-    private fun findLeg(hand: List<Card>): List<Card>? {
+    /** Two decks are used, therefore matching-rank cards may repeat a suit. */
+    private fun findTrio(hand: List<Card>): List<Card>? {
         val joker = hand.firstOrNull { it.isJoker }
         val groups = hand.filterNot { it.isJoker }.groupBy { it.rank }
         for (cards in groups.values.sortedByDescending { it.size }) {
-            val uniqueSuits = cards.distinctBy { it.suit }
-            if (uniqueSuits.size >= 3) return uniqueSuits.take(3)
-            if (uniqueSuits.size >= 2 && joker != null) return uniqueSuits.take(2) + joker
+            if (cards.size >= 3) return cards.take(3)
+            if (cards.size >= 2 && joker != null) return cards.take(2) + joker
         }
         return null
     }
 
     private fun findStraight(hand: List<Card>): List<Card>? {
         if (hand.size < 4) return null
-        for (size in 4..minOf(6, hand.size)) {
-            val match = combinations(hand, size).firstOrNull { GameRules.valid(MeldType.STRAIGHT, it) }
-            if (match != null) return match
-        }
-        return null
+        return combinations(hand, 4).firstOrNull { GameRules.validInitial(MeldType.STRAIGHT, it) }
     }
 
     private fun <T> combinations(items: List<T>, size: Int): List<List<T>> {
@@ -519,7 +524,7 @@ object GameEngine {
             discardPile = listOf(firstDiscard),
             currentPlayer = 0,
             phase = TurnPhase.DRAW,
-            message = "Round ${rule.number}. Drag DRAW or the glowing discard into your hand."
+            message = "Round ${rule.number}. Drag DRAW or DISCARD into your hand."
         )
     }
 
