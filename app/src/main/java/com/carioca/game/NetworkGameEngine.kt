@@ -7,6 +7,7 @@ import com.carioca.game.domain.GameMode
 import com.carioca.game.domain.GameRules
 import com.carioca.game.domain.GameState
 import com.carioca.game.domain.Meld
+import com.carioca.game.domain.MeldType
 import com.carioca.game.domain.PlayerState
 import com.carioca.game.domain.TurnPhase
 import kotlin.random.Random
@@ -34,14 +35,17 @@ object NetworkGameEngine {
         if (remaining.isNotEmpty()) {
             val completePlan = GameRules.findMeldPlan(cards, remaining, useAllCards = true)
             val singlePlan = if (completePlan == null) {
-                remaining.firstNotNullOfOrNull { type -> if (GameRules.valid(type, cards)) listOf(Meld(type, cards)) else null }
+                remaining.firstNotNullOfOrNull { type ->
+                    if (GameRules.validInitial(type, cards)) listOf(Meld(type, cards)) else null
+                }
             } else null
             val plan = completePlan ?: singlePlan
                 ?: return state.copy(
-                    message = if (GameEngine.contractReady(player, state.roundRule)) {
-                        "Your round goal is ready. Select the complete contract and drag it to the table."
-                    } else {
-                        "Those cards do not form a required meld for this round."
+                    message = when {
+                        cards.size == 3 && remaining.contains(MeldType.LEG) -> "A Trio is 3 cards of the same rank."
+                        cards.size == 4 && remaining.contains(MeldType.STRAIGHT) -> "A Straight is 4 consecutive cards of the same suit."
+                        GameEngine.nextMeldReady(player, state.roundRule) -> "A required meld is available. Select exactly that Trio or Straight."
+                        else -> "Those selected cards do not form a required meld for this round."
                     }
                 )
 
@@ -55,9 +59,9 @@ object NetworkGameEngine {
                 players = state.players.toMutableList().also { it[seat] = updated },
                 selected = emptySet(),
                 message = if (remainingAfter.isEmpty()) {
-                    "ROUND GOAL COMPLETE. Add cards directly to compatible table melds or discard."
+                    "ROUND GOAL COMPLETE. Add cards to compatible table melds, then discard."
                 } else {
-                    "Meld created. ${remainingAfter.size} contract meld(s) still required."
+                    "Meld placed. ${remainingAfter.size} required meld${if (remainingAfter.size == 1) "" else "s"} remaining."
                 }
             )
             if (updated.hand.isEmpty() && GameEngine.contractComplete(updated, state.roundRule)) next = finishRound(next, seat)
@@ -80,7 +84,7 @@ object NetworkGameEngine {
         if (!validTurn(state, seat, TurnPhase.ACTION)) return state.copy(message = "It is not your action phase.")
         val player = state.players[seat]
         if (!GameEngine.contractComplete(player, state.roundRule)) {
-            return state.copy(message = "Complete your round contract before adding to existing melds.")
+            return state.copy(message = "Complete your round goal before adding to existing melds.")
         }
         if (chosen.isEmpty()) return state
         val cards = player.hand.filter { it in chosen }
@@ -95,7 +99,7 @@ object NetworkGameEngine {
         if (!validTurn(state, seat, TurnPhase.ACTION)) return state.copy(message = "It is not your action phase.")
         val player = state.players[seat]
         if (card !in player.hand) return state.copy(message = "That card is no longer in your hand.")
-        if (player.hand.size == 1 && !GameEngine.contractComplete(player, state.roundRule)) return state.copy(message = "Complete this round's contract before going out.")
+        if (player.hand.size == 1 && !GameEngine.contractComplete(player, state.roundRule)) return state.copy(message = "Complete this round's goal before going out.")
 
         val updated = player.copy(hand = sortHand(player.hand - card))
         var next = state.copy(
@@ -105,7 +109,7 @@ object NetworkGameEngine {
         )
         if (updated.hand.isEmpty() && GameEngine.contractComplete(updated, state.roundRule)) return finishRound(next, seat)
         val nextSeat = (seat + 1) % state.players.size
-        next = next.copy(currentPlayer = nextSeat, phase = TurnPhase.DRAW, message = "${next.players[nextSeat].name}'s turn. Drag DRAW or the discard into the hand.")
+        next = next.copy(currentPlayer = nextSeat, phase = TurnPhase.DRAW, message = "${next.players[nextSeat].name}'s turn. Drag DRAW or DISCARD into the hand.")
         return next
     }
 
@@ -131,7 +135,8 @@ object NetworkGameEngine {
 
         val player = state.players[seat]
         val updated = player.copy(hand = sortHand(player.hand + card), steals = player.steals + if (fromDiscard) 1 else 0)
-        val ready = GameEngine.contractReady(updated, state.roundRule)
+        val fullGoalReady = GameEngine.contractReady(updated, state.roundRule)
+        val oneMeldReady = GameEngine.nextMeldReady(updated, state.roundRule)
         return state.copy(
             players = state.players.toMutableList().also { it[seat] = updated },
             drawPile = if (fromDiscard) draw else draw.drop(1),
@@ -139,14 +144,16 @@ object NetworkGameEngine {
             phase = TurnPhase.ACTION,
             selected = emptySet(),
             message = when {
-                ready && !GameEngine.contractComplete(updated, state.roundRule) -> "GOAL READY — select the contract cards and drag them to the table."
-                fromDiscard -> "Discard stolen: +2 points. Create melds or drag a card to DISCARD."
-                else -> "Card acquired. Create melds or drag a card to DISCARD."
+                fullGoalReady && !GameEngine.contractComplete(updated, state.roundRule) -> "ROUND GOAL READY — select and meld the required groups."
+                oneMeldReady -> "A required Trio or Straight is ready to meld."
+                fromDiscard -> "Discard taken: +2 points. Meld if possible, then discard."
+                else -> "Card drawn. Meld if possible, then discard."
             }
         )
     }
 
-    private fun validTurn(state: GameState, seat: Int, phase: TurnPhase): Boolean = seat in state.players.indices && state.currentPlayer == seat && state.phase == phase
+    private fun validTurn(state: GameState, seat: Int, phase: TurnPhase): Boolean =
+        seat in state.players.indices && state.currentPlayer == seat && state.phase == phase
 
     private fun addCardsToMeld(state: GameState, actorSeat: Int, ownerSeat: Int, meldIndex: Int, cards: List<Card>): GameState? {
         if (cards.isEmpty()) return null
@@ -198,7 +205,9 @@ object NetworkGameEngine {
         val hands = List(previousPlayers.size) { mutableListOf<Card>() }
         repeat(rule.deal) { hands.indices.forEach { seat -> hands[seat].add(deck.removeAt(0)) } }
         val firstDiscard = deck.removeAt(0)
-        val players = previousPlayers.mapIndexed { index, player -> player.copy(hand = sortHand(hands[index]), melds = emptyList(), roundPoints = 0, steals = 0, isHuman = true) }
+        val players = previousPlayers.mapIndexed { index, player ->
+            player.copy(hand = sortHand(hands[index]), melds = emptyList(), roundPoints = 0, steals = 0, isHuman = true)
+        }
         return GameState(
             mode = mode,
             difficulty = Difficulty.MEDIUM,
@@ -209,7 +218,7 @@ object NetworkGameEngine {
             currentPlayer = 0,
             phase = TurnPhase.DRAW,
             selected = emptySet(),
-            message = "Round ${rule.number}. ${players.first().name} drags a pile into the hand first."
+            message = "Round ${rule.number}. ${players.first().name} drags DRAW or DISCARD into the hand first."
         )
     }
 
@@ -219,5 +228,7 @@ object NetworkGameEngine {
         return discard.dropLast(1).shuffled() to listOf(top)
     }
 
-    private fun sortHand(cards: List<Card>): List<Card> = cards.sortedWith(compareBy<Card>({ it.isJoker }, { it.suit?.ordinal ?: 9 }, { it.rank.order }, { it.deck }, { it.copy }))
+    private fun sortHand(cards: List<Card>): List<Card> = cards.sortedWith(
+        compareBy<Card>({ it.isJoker }, { it.suit?.ordinal ?: 9 }, { it.rank.order }, { it.deck }, { it.copy })
+    )
 }
