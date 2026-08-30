@@ -18,7 +18,36 @@ object NetworkGameEngine {
     }
 
     fun drawFromDeck(state: GameState, seat: Int): GameState = draw(state, seat, fromDiscard = false)
-    fun stealDiscard(state: GameState, seat: Int): GameState = draw(state, seat, fromDiscard = true)
+    fun takeDiscard(state: GameState, seat: Int): GameState = draw(state, seat, fromDiscard = true)
+    fun stealDiscard(state: GameState, seat: Int): GameState = takeDiscard(state, seat)
+
+    fun stealAvailableDiscard(state: GameState, seat: Int): GameState {
+        if (state.phase != TurnPhase.STEAL_WINDOW || state.currentPlayer != seat) return state.copy(message = "It is not your steal decision.")
+        val card = state.discardPile.lastOrNull() ?: return finishStealWindow(state)
+        val player = state.players[seat]
+        val updated = player.copy(hand = sortHand(player.hand + card), steals = player.steals + 1)
+        return finishStealWindow(
+            state.copy(
+                players = state.players.toMutableList().also { it[seat] = updated },
+                discardPile = state.discardPile.dropLast(1),
+                selected = emptySet(),
+                message = "${updated.name} stole the discard · +2 points."
+            )
+        )
+    }
+
+    fun passSteal(state: GameState, seat: Int): GameState {
+        if (state.phase != TurnPhase.STEAL_WINDOW || state.currentPlayer != seat) return state.copy(message = "It is not your steal decision.")
+        val remaining = state.stealQueue.drop(1)
+        if (remaining.isEmpty()) return finishStealWindow(state)
+        val nextCandidate = remaining.first()
+        return state.copy(
+            currentPlayer = nextCandidate,
+            stealQueue = remaining,
+            selected = emptySet(),
+            message = "${state.players[nextCandidate].name} may steal the discard · +2."
+        )
+    }
 
     fun layCards(state: GameState, seat: Int, chosen: Set<Card>): GameState {
         if (!validTurn(state, seat, TurnPhase.ACTION)) return state.copy(message = "It is not your action phase.")
@@ -95,15 +124,13 @@ object NetworkGameEngine {
         }
 
         val updated = player.copy(hand = sortHand(player.hand - card))
-        var next = state.copy(
+        val discarded = state.copy(
             players = state.players.toMutableList().also { it[seat] = updated },
             discardPile = state.discardPile + card,
             selected = emptySet()
         )
-        if (updated.hand.isEmpty() && GameEngine.contractComplete(updated, state.roundRule)) return finishRound(next, seat)
-        val nextSeat = (seat + 1) % state.players.size
-        next = next.copy(currentPlayer = nextSeat, phase = TurnPhase.DRAW, message = "${next.players[nextSeat].name}'s turn. Drag DRAW or the available DISCARD into the hand.")
-        return next
+        if (updated.hand.isEmpty() && GameEngine.contractComplete(updated, state.roundRule)) return finishRound(discarded, seat)
+        return openStealWindow(discarded, discarder = seat)
     }
 
     fun nextRound(state: GameState, seat: Int, seed: Int = Random.nextInt()): GameState {
@@ -127,7 +154,7 @@ object NetworkGameEngine {
             ?: return state.copy(message = if (fromDiscard) "The discard pile is empty." else "The draw pile is empty.")
 
         val player = state.players[seat]
-        val updated = player.copy(hand = sortHand(player.hand + card), steals = player.steals + if (fromDiscard) 1 else 0)
+        val updated = player.copy(hand = sortHand(player.hand + card))
         val ready = GameEngine.contractReady(updated, state.roundRule)
         return state.copy(
             players = state.players.toMutableList().also { it[seat] = updated },
@@ -135,11 +162,57 @@ object NetworkGameEngine {
             discardPile = if (fromDiscard) discard.dropLast(1) else discard,
             phase = TurnPhase.ACTION,
             selected = emptySet(),
+            pendingNextPlayer = null,
+            stealQueue = emptyList(),
             message = when {
                 ready && !GameEngine.contractComplete(updated, state.roundRule) -> "ROUND GOAL READY — select all required melds and drag them to the table."
-                fromDiscard -> "Discard taken: +2 points. Lower if ready, then discard."
+                fromDiscard -> "Discard taken. Lower if ready, then discard."
                 else -> "Card drawn. Lower if ready, then discard."
             }
+        )
+    }
+
+    private fun openStealWindow(state: GameState, discarder: Int): GameState {
+        val count = state.players.size
+        val next = (discarder + 1) % count
+        if (count <= 2) {
+            return state.copy(
+                currentPlayer = next,
+                phase = TurnPhase.DRAW,
+                pendingNextPlayer = null,
+                stealQueue = emptyList(),
+                message = "${state.players[next].name}'s turn."
+            )
+        }
+
+        val candidates = mutableListOf<Int>()
+        var candidate = (next + 1) % count
+        while (candidate != discarder) {
+            candidates += candidate
+            candidate = (candidate + 1) % count
+        }
+        if (candidates.isEmpty()) return state.copy(currentPlayer = next, phase = TurnPhase.DRAW)
+
+        val first = candidates.first()
+        return state.copy(
+            currentPlayer = first,
+            phase = TurnPhase.STEAL_WINDOW,
+            pendingNextPlayer = next,
+            stealQueue = candidates,
+            selected = emptySet(),
+            message = "${state.players[first].name} may steal the discard · +2."
+        )
+    }
+
+    private fun finishStealWindow(state: GameState): GameState {
+        val next = state.pendingNextPlayer ?: return state.copy(phase = TurnPhase.DRAW, stealQueue = emptyList())
+        return state.copy(
+            currentPlayer = next,
+            phase = TurnPhase.DRAW,
+            pendingNextPlayer = null,
+            stealQueue = emptyList(),
+            selected = emptySet(),
+            message = "${state.players[next].name}'s turn."
         )
     }
 
@@ -186,6 +259,8 @@ object NetworkGameEngine {
             selected = emptySet(),
             roundWinner = winner,
             gameWinner = gameWinner,
+            pendingNextPlayer = null,
+            stealQueue = emptyList(),
             message = if (gameOver) "Game complete. ${scored[gameWinner ?: winner].name} wins with the lowest score." else "${scored[winner].name} went out. Round complete."
         )
     }
@@ -209,7 +284,7 @@ object NetworkGameEngine {
             currentPlayer = 0,
             phase = TurnPhase.DRAW,
             selected = emptySet(),
-            message = "Round ${rule.number}. ${players.first().name} drags DRAW or the available DISCARD into the hand first."
+            message = "Round ${rule.number}. ${players.first().name} drags DRAW or the top DISCARD into the hand first."
         )
     }
 
