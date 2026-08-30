@@ -17,13 +17,46 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,10 +68,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -61,45 +96,41 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { CariocaGameApp(onExit = { finish() }) }
+        setContent { CariocaGameApp { finish() } }
     }
 }
 
 private val Ink = Color(0xFF0D2438)
 private val Navy = Color(0xFF071A29)
 private val DeepBlue = Color(0xFF0C3148)
-private val Teal = Color(0xFF1D8B83)
 private val Felt = Color(0xFF0D5C58)
 private val FeltDark = Color(0xFF073F3E)
+private val Teal = Color(0xFF1D8B83)
 private val Gold = Color(0xFFFFC857)
 private val SoftWhite = Color(0xFFF2FAFB)
 private val Muted = Color(0xFF9FC3CC)
 private val RedSuit = Color(0xFFC93645)
-private val Danger = Color(0xFFFF7B79)
 private val Legal = Color(0xFF73E0C1)
 private val CardBack = Color(0xFF155B7A)
-
-private enum class GameScreen { SETUP, TABLE, RULES }
-private enum class HandSort { SUIT, RANK }
-private data class MeldTarget(val owner: Int, val meld: Int)
 
 private val HandCardWidth = 50.dp
 private val HandCardHeight = 73.dp
 private val PileWidth = 58.dp
 private val PileHeight = 80.dp
 
+private enum class Screen { SETUP, TABLE, RULES }
+private enum class HandSort { SUIT, RANK }
+private data class MeldTarget(val owner: Int, val meldIndex: Int)
+
 @Composable
 fun CariocaGameApp(onExit: () -> Unit) {
-    var screen by rememberSaveable { mutableStateOf(GameScreen.SETUP) }
+    var screen by rememberSaveable { mutableStateOf(Screen.SETUP) }
     var mode by rememberSaveable { mutableStateOf(GameMode.REGULAR) }
     var players by rememberSaveable { mutableIntStateOf(4) }
     var difficulty by rememberSaveable { mutableStateOf(Difficulty.MEDIUM) }
 
     BackHandler {
-        when (screen) {
-            GameScreen.TABLE, GameScreen.RULES -> screen = GameScreen.SETUP
-            GameScreen.SETUP -> onExit()
-        }
+        if (screen == Screen.SETUP) onExit() else screen = Screen.SETUP
     }
 
     MaterialTheme(
@@ -112,42 +143,32 @@ fun CariocaGameApp(onExit: () -> Unit) {
         )
     ) {
         when (screen) {
-            GameScreen.SETUP -> PracticeSetup(
+            Screen.SETUP -> SetupScreen(
                 mode = mode,
                 players = players,
                 difficulty = difficulty,
                 setMode = { mode = it },
                 setPlayers = { players = it },
                 setDifficulty = { difficulty = it },
-                start = { screen = GameScreen.TABLE },
-                rules = { screen = GameScreen.RULES },
+                start = { screen = Screen.TABLE },
+                rules = { screen = Screen.RULES },
                 exit = onExit
             )
-            GameScreen.TABLE -> GameTable(mode, players, difficulty) { screen = GameScreen.SETUP }
-            GameScreen.RULES -> RulesScreen { screen = GameScreen.SETUP }
+            Screen.TABLE -> GameTable(mode, players, difficulty) { screen = Screen.SETUP }
+            Screen.RULES -> RulesScreen { screen = Screen.SETUP }
         }
     }
 }
 
 @Composable
-private fun AppBackdrop(content: @Composable BoxScope.() -> Unit) {
+private fun Backdrop(content: @Composable BoxScope.() -> Unit) {
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Navy, DeepBlue)))) {
-        Canvas(Modifier.fillMaxSize()) {
-            val step = size.minDimension / 8f
-            repeat(14) { i ->
-                drawCircle(
-                    Color.White.copy(alpha = .014f),
-                    step * (.25f + (i % 3) * .07f),
-                    Offset((i * step * 1.65f) % size.width, (i * step * 2.1f) % size.height)
-                )
-            }
-        }
         content()
     }
 }
 
 @Composable
-private fun PracticeSetup(
+private fun SetupScreen(
     mode: GameMode,
     players: Int,
     difficulty: Difficulty,
@@ -158,50 +179,75 @@ private fun PracticeSetup(
     rules: () -> Unit,
     exit: () -> Unit
 ) {
-    AppBackdrop {
+    Backdrop {
         Row(
-            Modifier.fillMaxSize().padding(20.dp),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            Modifier.fillMaxSize().padding(18.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                Modifier.weight(1f).fillMaxHeight()
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Brush.radialGradient(listOf(Teal.copy(alpha = .48f), FeltDark)))
-                    .border(1.dp, Gold.copy(alpha = .25f), RoundedCornerShape(28.dp))
-                    .padding(22.dp)
+            Surface(
+                Modifier.weight(1f).fillMaxHeight(),
+                color = FeltDark,
+                shape = RoundedCornerShape(26.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Gold.copy(alpha = .25f))
             ) {
-                DecorativeCards(Modifier.align(Alignment.CenterEnd).size(205.dp, 170.dp))
-                Column(Modifier.align(Alignment.CenterStart).widthIn(max = 330.dp)) {
-                    Text("CARIOCA", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Black)
-                    Text("JUST THE GAME", color = Gold, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    Spacer(Modifier.height(18.dp))
-                    Text("Landscape card-table play with drag-only draw and discard interaction.", color = SoftWhite, fontSize = 15.sp, lineHeight = 21.sp)
-                    Spacer(Modifier.height(15.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { repeat(4) { MiniAvatar(it, it == 0) } }
+                Box(
+                    Modifier.fillMaxSize()
+                        .background(Brush.radialGradient(listOf(Teal.copy(alpha = .45f), FeltDark)))
+                        .padding(22.dp)
+                ) {
+                    Column(Modifier.align(Alignment.CenterStart).widthIn(max = 360.dp)) {
+                        Text("CARIOCA", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Black)
+                        Text("JUST THE GAME", color = Gold, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Horizontal-only table play. Drag piles into your hand, drag contracts to the meld area, and drag one card to discard.",
+                            color = SoftWhite,
+                            fontSize = 15.sp,
+                            lineHeight = 21.sp
+                        )
+                    }
+                    DecorativeFan(Modifier.align(Alignment.CenterEnd).size(190.dp, 150.dp))
                 }
             }
+
             Surface(
                 Modifier.weight(1.05f),
                 color = Color.White.copy(alpha = .075f),
                 shape = RoundedCornerShape(24.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .12f))
             ) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("AI Practice", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
                         TextButton(onClick = exit) { Text("Home", color = Muted) }
                     }
-                    Text("Game mode", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Game mode", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        GameMode.entries.forEach { item -> FilterChip(selected = mode == item, onClick = { setMode(item) }, label = { Text("${item.name.pretty()} · ${item.rounds}") }) }
+                        GameMode.entries.forEach { item ->
+                            FilterChip(
+                                selected = mode == item,
+                                onClick = { setMode(item) },
+                                label = { Text("${item.name.pretty()} · ${item.rounds}") }
+                            )
+                        }
                     }
-                    Text("Players", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) { (2..4).forEach { count -> FilterChip(selected = players == count, onClick = { setPlayers(count) }, label = { Text(count.toString()) }) } }
-                    Text("AI difficulty", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) { Difficulty.entries.forEach { level -> FilterChip(selected = difficulty == level, onClick = { setDifficulty(level) }, label = { Text(level.name.pretty()) }) } }
-                    Button(onClick = start, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp)) { Text("Deal Cards", fontWeight = FontWeight.Black) }
-                    OutlinedButton(onClick = rules, modifier = Modifier.fillMaxWidth().height(44.dp)) { Text("Rules") }
+                    Text("Players", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        (2..4).forEach { count ->
+                            FilterChip(selected = players == count, onClick = { setPlayers(count) }, label = { Text(count.toString()) })
+                        }
+                    }
+                    Text("AI difficulty", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Difficulty.entries.forEach { level ->
+                            FilterChip(selected = difficulty == level, onClick = { setDifficulty(level) }, label = { Text(level.name.pretty()) })
+                        }
+                    }
+                    Button(onClick = start, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp)) {
+                        Text("Deal Cards", fontWeight = FontWeight.Black)
+                    }
+                    OutlinedButton(onClick = rules, modifier = Modifier.fillMaxWidth().height(42.dp)) { Text("Rules") }
                 }
             }
         }
@@ -213,8 +259,8 @@ private fun GameTable(mode: GameMode, players: Int, difficulty: Difficulty, exit
     var state by remember(mode, players, difficulty) { mutableStateOf(GameEngine.newGame(mode, players, difficulty)) }
     var sort by rememberSaveable { mutableStateOf(HandSort.SUIT) }
     var sfx by rememberSaveable { mutableStateOf(true) }
-    var dragPosition by remember { mutableStateOf<Offset?>(null) }
-    var draggedCard by remember { mutableStateOf<GameCard?>(null) }
+    var dragPoint by remember { mutableStateOf<Offset?>(null) }
+    var floatingCard by remember { mutableStateOf<GameCard?>(null) }
     var tableBounds by remember { mutableStateOf(Rect.Zero) }
     var discardBounds by remember { mutableStateOf(Rect.Zero) }
     var handBounds by remember { mutableStateOf(Rect.Zero) }
@@ -222,114 +268,134 @@ private fun GameTable(mode: GameMode, players: Int, difficulty: Difficulty, exit
 
     val tone = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 44) }
     DisposableEffect(Unit) { onDispose { tone.release() } }
+
     val canSteal = state.currentPlayer == 0 && state.phase == TurnPhase.DRAW && state.discardPile.isNotEmpty()
-    LaunchedEffect(state.roundIndex, state.currentPlayer, state.phase, state.discardPile.size, sfx) {
+    LaunchedEffect(state.currentPlayer, state.phase, state.discardPile.size, sfx) {
         if (canSteal && sfx) tone.startTone(ToneGenerator.TONE_PROP_ACK, 105)
     }
 
-    fun inside(bounds: Rect, point: Offset): Boolean = bounds != Rect.Zero && bounds.contains(point)
     fun dropHandCard(card: GameCard, point: Offset) {
-        if (state.phase != TurnPhase.ACTION || state.currentPlayer != 0) return
-        val group = if (card in state.selected && state.selected.isNotEmpty()) state.selected else setOf(card)
-        val target = meldBounds.entries.firstOrNull { inside(it.value, point) }?.key
+        if (state.currentPlayer != 0 || state.phase != TurnPhase.ACTION) return
+        val selected = if (card in state.selected && state.selected.isNotEmpty()) state.selected else setOf(card)
+        val target = meldBounds.entries.firstOrNull { it.value.contains(point) }?.key
+
         state = when {
-            inside(discardBounds, point) -> GameEngine.discardSelected(state.copy(selected = setOf(card)))
-            target != null -> GameEngine.addSelectedToMeld(state.copy(selected = group), target.owner, target.meld)
-            inside(tableBounds, point) -> GameEngine.createMeld(state.copy(selected = group))
+            discardBounds != Rect.Zero && discardBounds.contains(point) ->
+                GameEngine.discardSelected(state.copy(selected = setOf(card)))
+            target != null ->
+                GameEngine.addSelectedToMeld(state.copy(selected = selected), target.owner, target.meldIndex)
+            tableBounds != Rect.Zero && tableBounds.contains(point) ->
+                GameEngine.createMeld(state.copy(selected = selected))
             else -> state
         }
-        dragPosition = null
+        dragPoint = null
     }
 
-    AppBackdrop {
-        Column(Modifier.fillMaxSize().padding(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Backdrop {
+        Column(Modifier.fillMaxSize().padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             TableHud(state, sfx, { sfx = !sfx }, exit)
-            OpponentSeats(state)
+            OpponentStrip(state)
+
             Box(
                 Modifier.weight(1f).fillMaxWidth()
-                    .background(Brush.radialGradient(listOf(Felt, FeltDark)), RoundedCornerShape(24.dp))
-                    .border(2.dp, Gold.copy(alpha = .24f), RoundedCornerShape(24.dp))
+                    .background(Brush.radialGradient(listOf(Felt, FeltDark)), RoundedCornerShape(22.dp))
+                    .border(2.dp, Gold.copy(alpha = .24f), RoundedCornerShape(22.dp))
             ) {
-                FeltPattern()
                 if (state.phase == TurnPhase.ROUND_OVER || state.phase == TurnPhase.GAME_OVER) {
-                    RoundSummaryOverlay(state, { state = GameEngine.nextRound(state) }, exit)
+                    RoundSummary(state, { state = GameEngine.nextRound(state) }, exit)
                 } else {
-                    Box(
-                        Modifier.fillMaxSize().padding(7.dp)
-                            .onGloballyPositioned { tableBounds = it.boundsInRootSafe() }
+                    RoundGoalBox(state, Modifier.align(Alignment.TopStart).padding(7.dp).width(150.dp))
+
+                    MeldWorkspace(
+                        state = state,
+                        dragPoint = dragPoint,
+                        setTableBounds = { tableBounds = it },
+                        onMeldBounds = { target, bounds -> meldBounds = meldBounds + (target to bounds) },
+                        modifier = Modifier.fillMaxSize().padding(start = 164.dp, end = 84.dp, top = 6.dp, bottom = 28.dp)
+                    )
+
+                    PileDock(
+                        state = state,
+                        handBounds = handBounds,
+                        setDiscardBounds = { discardBounds = it },
+                        onDrag = { dragPoint = it },
+                        onDraw = { state = GameEngine.drawFromDeck(state) },
+                        onSteal = { state = GameEngine.stealDiscard(state) },
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(end = 7.dp).width(70.dp)
+                    )
+
+                    Surface(
+                        color = Ink.copy(alpha = .46f),
+                        shape = RoundedCornerShape(9.dp),
+                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(.70f).padding(bottom = 4.dp)
                     ) {
-                        MeldTable(
-                            state = state,
-                            dragPosition = dragPosition,
-                            onMeldBounds = { target, bounds -> meldBounds = meldBounds + (target to bounds) },
-                            modifier = Modifier.fillMaxSize().padding(start = 162.dp, end = 86.dp, top = 4.dp, bottom = 31.dp)
+                        Text(
+                            state.message,
+                            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            color = SoftWhite,
+                            fontSize = 8.sp,
+                            textAlign = TextAlign.Center
                         )
-                        RoundGoalInfo(state, Modifier.align(Alignment.TopStart).width(154.dp))
-                        PileDock(
-                            state = state,
-                            handBounds = handBounds,
-                            discardBounds = discardBounds,
-                            setDiscardBounds = { discardBounds = it },
-                            onDragPosition = { dragPosition = it },
-                            onDraw = { state = GameEngine.drawFromDeck(state) },
-                            onSteal = { state = GameEngine.stealDiscard(state) },
-                            modifier = Modifier.align(Alignment.CenterEnd).width(78.dp)
-                        )
-                        Surface(
-                            color = Ink.copy(alpha = .42f),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(.72f)
-                        ) {
-                            Text(state.message, Modifier.padding(horizontal = 8.dp, vertical = 5.dp), color = SoftWhite, fontSize = 9.sp, textAlign = TextAlign.Center)
-                        }
                     }
                 }
             }
-            HumanHandDock(
+
+            HandDock(
                 state = state,
                 sort = sort,
                 setHandBounds = { handBounds = it },
                 onSort = { sort = it },
                 onToggle = { state = GameEngine.toggleSelection(state, it) },
-                onDragPosition = { dragPosition = it },
-                onDraggingCard = { draggedCard = it },
+                onDrag = { dragPoint = it },
+                onFloating = { floatingCard = it },
                 onDrop = ::dropHandCard,
-                modifier = Modifier.fillMaxWidth().height(104.dp)
+                modifier = Modifier.fillMaxWidth().height(101.dp)
             )
         }
-        if (draggedCard != null && dragPosition != null) FloatingDraggedCard(draggedCard!!, dragPosition!!)
+
+        if (floatingCard != null && dragPoint != null) {
+            FloatingCard(floatingCard!!, dragPoint!!)
+        }
     }
 }
 
 @Composable
 private fun TableHud(state: GameState, sfx: Boolean, onSfx: () -> Unit, onExit: () -> Unit) {
-    Row(Modifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = onExit, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("← Exit", color = Muted, fontSize = 11.sp) }
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("ROUND ${state.roundIndex + 1} / ${state.mode.rounds}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black)
-            Text(state.roundRule.description().uppercase(), color = Gold, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+    Row(Modifier.fillMaxWidth().height(32.dp), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = onExit, contentPadding = PaddingValues(horizontal = 7.dp)) {
+            Text("← Exit", color = Muted, fontSize = 10.sp)
         }
-        IconButton(onClick = onSfx, modifier = Modifier.size(34.dp)) { Text(if (sfx) "🔊" else "🔇", fontSize = 15.sp) }
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("ROUND ${state.roundIndex + 1} / ${state.mode.rounds}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Text(state.roundRule.description().uppercase(), color = Gold, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+        }
+        IconButton(onClick = onSfx, modifier = Modifier.size(30.dp)) {
+            Text(if (sfx) "🔊" else "🔇", fontSize = 13.sp)
+        }
     }
 }
 
 @Composable
-private fun OpponentSeats(state: GameState) {
-    Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+private fun OpponentStrip(state: GameState) {
+    Row(
+        Modifier.fillMaxWidth().height(46.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         state.players.drop(1).forEachIndexed { index, player ->
             val active = state.currentPlayer == index + 1
             Surface(
                 color = Color.White.copy(alpha = .07f),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 border = androidx.compose.foundation.BorderStroke(if (active) 2.dp else 1.dp, if (active) Gold else Color.White.copy(alpha = .08f))
             ) {
-                Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    MiniAvatar(index + 1, active, 34.dp)
-                    Spacer(Modifier.width(6.dp))
+                Row(Modifier.padding(horizontal = 7.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PlayerAvatar(index + 1, active, 29.dp)
+                    Spacer(Modifier.width(5.dp))
                     Column {
-                        Text(player.name, color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        Text("${player.hand.size} cards · ${player.score} pts", color = Muted, fontSize = 7.sp)
-                        if (player.melds.isNotEmpty()) Text("${player.melds.size} melds", color = Gold, fontSize = 7.sp)
+                        Text(player.name, color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        Text("${player.hand.size} cards · ${player.score} pts", color = Muted, fontSize = 6.sp)
+                        if (player.melds.isNotEmpty()) Text("${player.melds.size} melds", color = Gold, fontSize = 6.sp)
                     }
                 }
             }
@@ -338,100 +404,94 @@ private fun OpponentSeats(state: GameState) {
 }
 
 @Composable
-private fun RoundGoalInfo(state: GameState, modifier: Modifier) {
-    val human = state.players.first()
-    val remaining = GameEngine.remainingRequirements(human, state.roundRule)
-    val complete = GameEngine.contractComplete(human, state.roundRule)
-    val ready = !complete && GameEngine.contractReady(human, state.roundRule)
-    Surface(modifier, color = Ink.copy(alpha = .80f), shape = RoundedCornerShape(14.dp), border = androidx.compose.foundation.BorderStroke(1.dp, if (ready || complete) Legal.copy(alpha = .8f) else Color.White.copy(alpha = .09f))) {
-        Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text("ROUND GOAL", color = Gold, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-            Text(state.roundRule.description(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text("${GameRules.requiredCardCount(state.roundRule)} contract cards", color = Muted, fontSize = 8.sp)
+private fun RoundGoalBox(state: GameState, modifier: Modifier) {
+    val player = state.players.first()
+    val remaining = GameEngine.remainingRequirements(player, state.roundRule)
+    val complete = GameEngine.contractComplete(player, state.roundRule)
+    val ready = !complete && GameEngine.contractReady(player, state.roundRule)
+
+    Surface(
+        modifier,
+        color = Ink.copy(alpha = .84f),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (ready || complete) Legal else Color.White.copy(alpha = .10f))
+    ) {
+        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("ROUND GOAL", color = Gold, fontSize = 7.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            Text(state.roundRule.description(), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text("${GameRules.requiredCardCount(state.roundRule)} contract cards", color = Muted, fontSize = 7.sp)
             Text(
                 when {
                     complete -> "✓ MELDED"
                     ready -> "✓ GOAL READY"
-                    else -> "Need ${GameEngine.cardsStillRequired(human, state.roundRule)} cards in ${remaining.size} meld${if (remaining.size == 1) "" else "s"}"
+                    else -> "Need ${GameEngine.cardsStillRequired(player, state.roundRule)} cards"
                 },
                 color = if (ready || complete) Legal else SoftWhite,
-                fontSize = 8.sp,
+                fontSize = 7.sp,
                 fontWeight = FontWeight.Bold
             )
-            if (remaining.isNotEmpty()) Text(remaining.joinToString(" + ") { it.label() }, color = SoftWhite, fontSize = 7.sp, lineHeight = 9.sp)
+            if (remaining.isNotEmpty()) {
+                Text(remaining.joinToString(" + ") { it.label() }, color = SoftWhite, fontSize = 6.sp, lineHeight = 8.sp)
+            }
         }
     }
 }
 
 @Composable
-private fun PileDock(
+private fun MeldWorkspace(
     state: GameState,
-    handBounds: Rect,
-    discardBounds: Rect,
-    setDiscardBounds: (Rect) -> Unit,
-    onDragPosition: (Offset?) -> Unit,
-    onDraw: () -> Unit,
-    onSteal: () -> Unit,
-    modifier: Modifier
-) {
-    val canDraw = state.currentPlayer == 0 && state.phase == TurnPhase.DRAW
-    val canSteal = canDraw && state.discardPile.isNotEmpty()
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Text("DRAG", color = Muted, fontSize = 7.sp, fontWeight = FontWeight.Black)
-        DrawPileCard(state.drawPile.size, canDraw, handBounds, onDragPosition, onDraw)
-        val top = state.discardPile.lastOrNull()
-        Box(
-            Modifier.size(PileWidth, PileHeight).onGloballyPositioned { setDiscardBounds(it.boundsInRootSafe()) },
-            contentAlignment = Alignment.Center
-        ) {
-            if (top != null) DiscardPileCard(top, canSteal, handBounds, onDragPosition, onSteal)
-            else EmptyPile("DISCARD")
-        }
-    }
-}
-
-@Composable
-private fun MeldTable(
-    state: GameState,
-    dragPosition: Offset?,
+    dragPoint: Offset?,
+    setTableBounds: (Rect) -> Unit,
     onMeldBounds: (MeldTarget, Rect) -> Unit,
     modifier: Modifier
 ) {
-    val totalCards = state.players.sumOf { player -> player.melds.sumOf { it.cards.size } }
-    val cardWidth = when {
-        totalCards >= 36 -> 27.dp
-        totalCards >= 24 -> 30.dp
-        else -> 34.dp
+    val totalMeldCards = state.players.sumOf { player -> player.melds.sumOf { meld -> meld.cards.size } }
+    val dimensions = when {
+        totalMeldCards >= 36 -> 26.dp to 38.dp
+        totalMeldCards >= 24 -> 29.dp to 43.dp
+        else -> 33.dp to 49.dp
     }
-    val cardHeight = cardWidth * 1.47f
 
-    Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(
+        modifier
+            .onGloballyPositioned { setTableBounds(it.rootBounds()) }
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
         if (state.players.all { it.melds.isEmpty() }) {
-            Box(Modifier.fillMaxWidth().height(128.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().height(116.dp), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("MELD AREA", color = Color.White.copy(alpha = .42f), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
-                    Text("Select the round contract cards and drag them here", color = Color.White.copy(alpha = .48f), fontSize = 9.sp)
+                    Text("MELD AREA", color = Color.White.copy(alpha = .40f), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
+                    Text("Select the round contract and drag it here", color = Color.White.copy(alpha = .48f), fontSize = 8.sp)
                 }
             }
         }
+
         state.players.forEachIndexed { ownerIndex, player ->
             if (player.melds.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.width(62.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        MiniAvatar(ownerIndex, state.currentPlayer == ownerIndex, 28.dp)
-                        Text(player.name, color = Color.White, fontSize = 7.sp, maxLines = 1)
+                Row(Modifier.fillMaxWidth().heightIn(min = 51.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.width(54.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        PlayerAvatar(ownerIndex, state.currentPlayer == ownerIndex, 25.dp)
+                        Text(player.name, color = Color.White, fontSize = 6.sp, maxLines = 1)
                     }
-                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         player.melds.forEachIndexed { meldIndex, meld ->
                             val target = MeldTarget(ownerIndex, meldIndex)
-                            val over = dragPosition?.let { point -> false } ?: false
+                            var bounds by remember(ownerIndex, meldIndex, meld.cards.size) { mutableStateOf(Rect.Zero) }
+                            val highlight = dragPoint?.let { bounds != Rect.Zero && bounds.contains(it) } == true
                             MeldFan(
-                                owner = player.name,
                                 meld = meld,
-                                cardWidth = cardWidth,
-                                cardHeight = cardHeight,
-                                modifier = Modifier.onGloballyPositioned { onMeldBounds(target, it.boundsInRootSafe()) },
-                                highlight = over
+                                cardWidth = dimensions.first,
+                                cardHeight = dimensions.second,
+                                highlight = highlight,
+                                modifier = Modifier.onGloballyPositioned {
+                                    bounds = it.rootBounds()
+                                    onMeldBounds(target, bounds)
+                                }
                             )
                         }
                     }
@@ -442,274 +502,376 @@ private fun MeldTable(
 }
 
 @Composable
-private fun MeldFan(owner: String, meld: Meld, cardWidth: androidx.compose.ui.unit.Dp, cardHeight: androidx.compose.ui.unit.Dp, modifier: Modifier, highlight: Boolean) {
+private fun MeldFan(meld: Meld, cardWidth: Dp, cardHeight: Dp, highlight: Boolean, modifier: Modifier) {
     Surface(
-        modifier = modifier,
-        color = Ink.copy(alpha = .40f),
-        shape = RoundedCornerShape(11.dp),
+        modifier,
+        color = Ink.copy(alpha = .42f),
+        shape = RoundedCornerShape(9.dp),
         border = androidx.compose.foundation.BorderStroke(if (highlight) 2.dp else 1.dp, if (highlight) Legal else Color.White.copy(alpha = .08f))
     ) {
-        Column(Modifier.padding(5.dp)) {
+        Column(Modifier.padding(4.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(meld.type.label().uppercase(), color = Gold, fontSize = 6.sp, fontWeight = FontWeight.Black)
-                Text("${meld.cards.size}", color = Muted, fontSize = 6.sp)
+                Text(meld.type.label().uppercase(), color = Gold, fontSize = 5.sp, fontWeight = FontWeight.Black)
+                Text(meld.cards.size.toString(), color = Muted, fontSize = 5.sp)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(-(cardWidth * .56f))) {
-                meld.cards.forEach { card -> PlayingCardFace(card, false, Modifier.size(cardWidth, cardHeight), compact = true) }
+            Row(horizontalArrangement = Arrangement.spacedBy((-15).dp)) {
+                meld.cards.forEach { card -> CardFace(card, false, Modifier.size(cardWidth, cardHeight), compact = true) }
             }
         }
     }
 }
 
 @Composable
-private fun HumanHandDock(
+private fun PileDock(
+    state: GameState,
+    handBounds: Rect,
+    setDiscardBounds: (Rect) -> Unit,
+    onDrag: (Offset?) -> Unit,
+    onDraw: () -> Unit,
+    onSteal: () -> Unit,
+    modifier: Modifier
+) {
+    val canDraw = state.currentPlayer == 0 && state.phase == TurnPhase.DRAW
+    val canSteal = canDraw && state.discardPile.isNotEmpty()
+
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("DRAG", color = Muted, fontSize = 6.sp, fontWeight = FontWeight.Black)
+        DraggablePile(canDraw, handBounds, onDrag, onDraw) { DrawPileFace(state.drawPile.size) }
+        Box(Modifier.size(PileWidth, PileHeight).onGloballyPositioned { setDiscardBounds(it.rootBounds()) }) {
+            val top = state.discardPile.lastOrNull()
+            if (top == null) {
+                EmptyPile()
+            } else {
+                val transition = rememberInfiniteTransition(label = "steal")
+                val glow by transition.animateFloat(
+                    initialValue = .30f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse),
+                    label = "stealGlow"
+                )
+                DraggablePile(canSteal, handBounds, onDrag, onSteal) {
+                    CardFace(
+                        top,
+                        false,
+                        Modifier.fillMaxSize().border(
+                            if (canSteal) 3.dp else 1.dp,
+                            if (canSteal) Gold.copy(alpha = glow) else Color.LightGray,
+                            RoundedCornerShape(8.dp)
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HandDock(
     state: GameState,
     sort: HandSort,
     setHandBounds: (Rect) -> Unit,
     onSort: (HandSort) -> Unit,
     onToggle: (GameCard) -> Unit,
-    onDragPosition: (Offset?) -> Unit,
-    onDraggingCard: (GameCard?) -> Unit,
+    onDrag: (Offset?) -> Unit,
+    onFloating: (GameCard?) -> Unit,
     onDrop: (GameCard, Offset) -> Unit,
     modifier: Modifier
 ) {
-    val human = state.players.first()
+    val player = state.players.first()
     val cards = when (sort) {
-        HandSort.SUIT -> human.hand.sortedWith(compareBy<GameCard>({ it.isJoker }, { it.suit?.ordinal ?: 9 }, { it.rank.order }, { it.deck }, { it.copy }))
-        HandSort.RANK -> human.hand.sortedWith(compareBy<GameCard>({ it.isJoker }, { it.rank.order }, { it.suit?.ordinal ?: 9 }, { it.deck }, { it.copy }))
+        HandSort.SUIT -> player.hand.sortedWith(compareBy<GameCard>({ it.isJoker }, { it.suit?.ordinal ?: 9 }, { it.rank.order }, { it.deck }, { it.copy }))
+        HandSort.RANK -> player.hand.sortedWith(compareBy<GameCard>({ it.isJoker }, { it.rank.order }, { it.suit?.ordinal ?: 9 }, { it.deck }, { it.copy }))
     }
+
     Box(
-        modifier.onGloballyPositioned { setHandBounds(it.boundsInRootSafe()) }
-            .background(Ink.copy(alpha = .76f), RoundedCornerShape(18.dp))
-            .border(1.dp, Color.White.copy(alpha = .08f), RoundedCornerShape(18.dp))
+        modifier
+            .onGloballyPositioned { setHandBounds(it.rootBounds()) }
+            .background(Ink.copy(alpha = .80f), RoundedCornerShape(16.dp))
+            .border(1.dp, Color.White.copy(alpha = .08f), RoundedCornerShape(16.dp))
     ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.width(106.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.width(102.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    MiniAvatar(0, state.currentPlayer == 0, 30.dp)
-                    Spacer(Modifier.width(5.dp))
+                    PlayerAvatar(0, state.currentPlayer == 0, 28.dp)
+                    Spacer(Modifier.width(4.dp))
                     Column {
-                        Text("YOUR HAND", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Black)
-                        Text("${human.hand.size} cards", color = Muted, fontSize = 7.sp)
+                        Text("YOUR HAND", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                        Text("${player.hand.size} cards", color = Muted, fontSize = 6.sp)
                     }
                 }
                 Row {
-                    TextButton(onClick = { onSort(HandSort.SUIT) }, contentPadding = PaddingValues(2.dp)) { Text("Suit", color = if (sort == HandSort.SUIT) Gold else Muted, fontSize = 7.sp) }
-                    TextButton(onClick = { onSort(HandSort.RANK) }, contentPadding = PaddingValues(2.dp)) { Text("Rank", color = if (sort == HandSort.RANK) Gold else Muted, fontSize = 7.sp) }
+                    TextButton(onClick = { onSort(HandSort.SUIT) }, contentPadding = PaddingValues(1.dp), modifier = Modifier.height(24.dp)) {
+                        Text("Suit", color = if (sort == HandSort.SUIT) Gold else Muted, fontSize = 6.sp)
+                    }
+                    TextButton(onClick = { onSort(HandSort.RANK) }, contentPadding = PaddingValues(1.dp), modifier = Modifier.height(24.dp)) {
+                        Text("Rank", color = if (sort == HandSort.RANK) Gold else Muted, fontSize = 6.sp)
+                    }
                 }
             }
-            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy((-9).dp), verticalAlignment = Alignment.CenterVertically) {
+
+            Row(
+                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy((-9).dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 cards.forEach { card ->
-                    DraggablePlayingCard(
-                        card,
+                    DraggableHandCard(
+                        card = card,
                         selected = card in state.selected,
-                        enabled = state.phase == TurnPhase.ACTION && state.currentPlayer == 0,
+                        enabled = state.currentPlayer == 0 && state.phase == TurnPhase.ACTION,
                         onClick = { onToggle(card) },
-                        onDragPosition = onDragPosition,
-                        onDraggingCard = onDraggingCard,
+                        onDrag = onDrag,
+                        onFloating = onFloating,
                         onDrop = { point -> onDrop(card, point) }
                     )
                 }
             }
+
             Text(
-                if (state.phase == TurnPhase.DRAW) "DRAG\nA PILE\nHERE" else "DRAG\nTO MELD\nOR DISCARD",
-                modifier = Modifier.width(68.dp), color = if (state.phase == TurnPhase.DRAW) Gold else Muted, fontSize = 7.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center
+                if (state.phase == TurnPhase.DRAW) "DRAG\nPILE\nHERE" else "DRAG\nTO MELD\nOR PILE",
+                Modifier.width(60.dp),
+                color = if (state.phase == TurnPhase.DRAW) Gold else Muted,
+                fontSize = 6.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center
             )
         }
     }
 }
 
 @Composable
-private fun DraggablePlayingCard(
+private fun DraggableHandCard(
     card: GameCard,
     selected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
-    onDragPosition: (Offset?) -> Unit,
-    onDraggingCard: (GameCard?) -> Unit,
+    onDrag: (Offset?) -> Unit,
+    onFloating: (GameCard?) -> Unit,
     onDrop: (Offset) -> Unit
 ) {
-    var drag by remember(card) { mutableStateOf(Offset.Zero) }
-    var baseOrigin by remember(card) { mutableStateOf(Offset.Zero) }
+    var delta by remember(card) { mutableStateOf(Offset.Zero) }
+    var origin by remember(card) { mutableStateOf(Offset.Zero) }
     var measured by remember(card) { mutableStateOf(IntSize.Zero) }
     var dragging by remember(card) { mutableStateOf(false) }
-    fun centerPoint(): Offset = baseOrigin + drag + Offset(measured.width / 2f, measured.height / 2f)
 
-    PlayingCardFace(
+    fun centerPoint(): Offset = origin + delta + Offset(measured.width / 2f, measured.height / 2f)
+
+    CardFace(
         card,
         selected,
-        Modifier.padding(horizontal = 1.dp).size(HandCardWidth, HandCardHeight)
+        Modifier
+            .size(HandCardWidth, HandCardHeight)
             .offset(y = if (selected && !dragging) (-5).dp else 0.dp)
-            .onGloballyPositioned { measured = it.size; if (!dragging) baseOrigin = it.positionInRoot() }
+            .onGloballyPositioned {
+                measured = it.size
+                if (!dragging) origin = it.positionInRoot()
+            }
             .zIndex(if (dragging) 20f else if (selected) 2f else 1f)
-            .graphicsLayer { alpha = if (dragging) .26f else 1f }
+            .graphicsLayer { alpha = if (dragging) .25f else 1f }
             .pointerInput(enabled, card) {
                 if (!enabled) return@pointerInput
                 detectDragGestures(
-                    onDragStart = { dragging = true; drag = Offset.Zero; onDraggingCard(card); onDragPosition(centerPoint()) },
-                    onDragCancel = { dragging = false; drag = Offset.Zero; onDraggingCard(null); onDragPosition(null) },
-                    onDragEnd = { val point = centerPoint(); dragging = false; onDrop(point); drag = Offset.Zero; onDraggingCard(null); onDragPosition(null) }
-                ) { change, amount -> change.consume(); drag += amount; onDragPosition(centerPoint()) }
-            }.clickable(enabled = enabled, onClick = onClick)
+                    onDragStart = {
+                        dragging = true
+                        delta = Offset.Zero
+                        onFloating(card)
+                        onDrag(centerPoint())
+                    },
+                    onDragCancel = {
+                        dragging = false
+                        delta = Offset.Zero
+                        onFloating(null)
+                        onDrag(null)
+                    },
+                    onDragEnd = {
+                        val point = centerPoint()
+                        dragging = false
+                        onDrop(point)
+                        delta = Offset.Zero
+                        onFloating(null)
+                        onDrag(null)
+                    },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        delta += amount
+                        onDrag(centerPoint())
+                    }
+                )
+            }
+            .clickable(enabled = enabled, onClick = onClick)
     )
 }
 
 @Composable
-private fun FloatingDraggedCard(card: GameCard, center: Offset) {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val widthPx = with(density) { HandCardWidth.toPx() }
-    val heightPx = with(density) { HandCardHeight.toPx() }
-    PlayingCardFace(
-        card,
-        true,
-        Modifier.offset { IntOffset((center.x - widthPx / 2f).roundToInt(), (center.y - heightPx / 2f).roundToInt()) }
-            .size(HandCardWidth, HandCardHeight).zIndex(100f)
-            .graphicsLayer { scaleX = 1.10f; scaleY = 1.10f; shadowElevation = 16.dp.toPx() }
-    )
-}
-
-@Composable
-private fun DrawPileCard(count: Int, enabled: Boolean, handBounds: Rect, onDragPosition: (Offset?) -> Unit, onDropToHand: () -> Unit) {
-    DraggablePile(enabled, handBounds, onDragPosition, onDropToHand) {
-        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(9.dp)).background(CardBack).border(2.dp, SoftWhite.copy(alpha = .9f), RoundedCornerShape(9.dp)).padding(4.dp), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.fillMaxSize()) {
-                val s = 8.dp.toPx(); var x = -size.height
-                while (x < size.width + size.height) { drawLine(Gold.copy(alpha = .25f), Offset(x, 0f), Offset(x + size.height, size.height), 1.dp.toPx()); x += s }
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("CARIOCA", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
-                Text(count.toString(), color = Gold, fontSize = 13.sp, fontWeight = FontWeight.Black)
-                Text("DRAW", color = SoftWhite, fontSize = 6.sp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun DiscardPileCard(card: GameCard, canSteal: Boolean, handBounds: Rect, onDragPosition: (Offset?) -> Unit, onDropToHand: () -> Unit) {
-    val transition = rememberInfiniteTransition(label = "steal")
-    val glow by transition.animateFloat(.30f, 1f, infiniteRepeatable(tween(650), RepeatMode.Reverse), label = "glow")
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        DraggablePile(canSteal, handBounds, onDragPosition, onDropToHand) {
-            PlayingCardFace(card, false, Modifier.fillMaxSize().border(if (canSteal) 3.dp else 1.dp, if (canSteal) Gold.copy(alpha = glow) else Color.LightGray, RoundedCornerShape(9.dp)))
-        }
-        if (canSteal) Text("STEAL +2", color = Gold, fontSize = 6.sp, fontWeight = FontWeight.Black)
-    }
-}
-
-@Composable
-private fun DraggablePile(enabled: Boolean, handBounds: Rect, onDragPosition: (Offset?) -> Unit, onDropToHand: () -> Unit, content: @Composable () -> Unit) {
-    var drag by remember { mutableStateOf(Offset.Zero) }
-    var baseOrigin by remember { mutableStateOf(Offset.Zero) }
+private fun DraggablePile(
+    enabled: Boolean,
+    handBounds: Rect,
+    onDrag: (Offset?) -> Unit,
+    onDropToHand: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    var delta by remember { mutableStateOf(Offset.Zero) }
+    var origin by remember { mutableStateOf(Offset.Zero) }
     var measured by remember { mutableStateOf(IntSize.Zero) }
     var dragging by remember { mutableStateOf(false) }
-    fun centerPoint(): Offset = baseOrigin + drag + Offset(measured.width / 2f, measured.height / 2f)
+
+    fun centerPoint(): Offset = origin + delta + Offset(measured.width / 2f, measured.height / 2f)
 
     Box(
-        Modifier.size(PileWidth, PileHeight)
-            .onGloballyPositioned { measured = it.size; if (!dragging) baseOrigin = it.positionInRoot() }
+        Modifier
+            .size(PileWidth, PileHeight)
+            .onGloballyPositioned {
+                measured = it.size
+                if (!dragging) origin = it.positionInRoot()
+            }
             .zIndex(if (dragging) 30f else 1f)
-            .graphicsLayer { translationX = drag.x; translationY = drag.y; scaleX = if (dragging) 1.08f else 1f; scaleY = if (dragging) 1.08f else 1f }
+            .graphicsLayer {
+                translationX = delta.x
+                translationY = delta.y
+                scaleX = if (dragging) 1.08f else 1f
+                scaleY = if (dragging) 1.08f else 1f
+            }
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 detectDragGestures(
-                    onDragStart = { dragging = true; drag = Offset.Zero; onDragPosition(centerPoint()) },
-                    onDragCancel = { dragging = false; drag = Offset.Zero; onDragPosition(null) },
+                    onDragStart = {
+                        dragging = true
+                        delta = Offset.Zero
+                        onDrag(centerPoint())
+                    },
+                    onDragCancel = {
+                        dragging = false
+                        delta = Offset.Zero
+                        onDrag(null)
+                    },
                     onDragEnd = {
-                        val point = centerPoint(); dragging = false
+                        val point = centerPoint()
+                        dragging = false
                         if (handBounds != Rect.Zero && handBounds.contains(point)) onDropToHand()
-                        drag = Offset.Zero; onDragPosition(null)
+                        delta = Offset.Zero
+                        onDrag(null)
+                    },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        delta += amount
+                        onDrag(centerPoint())
                     }
-                ) { change, amount -> change.consume(); drag += amount; onDragPosition(centerPoint()) }
+                )
             }
     ) { content() }
 }
 
 @Composable
-private fun PlayingCardFace(card: GameCard, selected: Boolean, modifier: Modifier, compact: Boolean = false) {
-    val ink = if (card.suit?.red == true) RedSuit else Ink
-    Card(modifier = modifier, shape = RoundedCornerShape(if (compact) 6.dp else 8.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFEFB)), elevation = CardDefaults.cardElevation(defaultElevation = if (compact) 1.dp else 2.dp)) {
-        Box(Modifier.fillMaxSize().border(if (selected) 3.dp else 1.dp, if (selected) Gold else Color(0xFFD7D9DC), RoundedCornerShape(if (compact) 6.dp else 8.dp)).padding(if (compact) 3.dp else 4.dp)) {
-            Column(Modifier.align(Alignment.TopStart), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(card.rank.shortLabel(), color = ink, fontSize = if (compact) 8.sp else 11.sp, fontWeight = FontWeight.Black, lineHeight = if (compact) 8.sp else 11.sp)
-                Text(if (card.isJoker) "★" else card.suit?.symbol().orEmpty(), color = if (card.isJoker) Teal else ink, fontSize = if (compact) 7.sp else 8.sp, lineHeight = if (compact) 7.sp else 8.sp)
-            }
-            Text(if (card.isJoker) "★" else card.suit?.symbol().orEmpty(), Modifier.align(Alignment.Center), color = if (card.isJoker) Teal else ink, fontSize = if (compact) 16.sp else 21.sp, fontWeight = FontWeight.Bold)
-            if (card.isJoker) Text("J", Modifier.align(Alignment.BottomCenter), color = Teal, fontSize = if (compact) 5.sp else 6.sp, fontWeight = FontWeight.Black)
-            else Text(card.suit?.symbol().orEmpty(), Modifier.align(Alignment.BottomEnd), color = ink, fontSize = if (compact) 7.sp else 9.sp)
+private fun DrawPileFace(count: Int) {
+    Box(
+        Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).background(CardBack)
+            .border(2.dp, SoftWhite.copy(alpha = .9f), RoundedCornerShape(8.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("CARIOCA", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
+            Text(count.toString(), color = Gold, fontSize = 13.sp, fontWeight = FontWeight.Black)
+            Text("DRAW", color = SoftWhite, fontSize = 6.sp)
         }
     }
 }
 
 @Composable
-private fun EmptyPile(label: String) {
-    Box(Modifier.size(PileWidth, PileHeight).border(1.dp, Color.White.copy(alpha = .20f), RoundedCornerShape(9.dp)), contentAlignment = Alignment.Center) {
-        Text(label, color = Color.White.copy(alpha = .35f), fontSize = 6.sp)
+private fun EmptyPile() {
+    Box(
+        Modifier.fillMaxSize().border(1.dp, Color.White.copy(alpha = .20f), RoundedCornerShape(8.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("DISCARD", color = Color.White.copy(alpha = .35f), fontSize = 6.sp)
     }
 }
 
 @Composable
-private fun RoundSummaryOverlay(state: GameState, next: () -> Unit, exit: () -> Unit) {
+private fun FloatingCard(card: GameCard, center: Offset) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val widthPx = with(density) { HandCardWidth.toPx() }
+    val heightPx = with(density) { HandCardHeight.toPx() }
+    CardFace(
+        card,
+        true,
+        Modifier
+            .offset { IntOffset((center.x - widthPx / 2f).roundToInt(), (center.y - heightPx / 2f).roundToInt()) }
+            .size(HandCardWidth, HandCardHeight)
+            .zIndex(100f)
+            .graphicsLayer { scaleX = 1.10f; scaleY = 1.10f; shadowElevation = 14.dp.toPx() }
+    )
+}
+
+@Composable
+private fun CardFace(card: GameCard, selected: Boolean, modifier: Modifier, compact: Boolean = false) {
+    val ink = if (card.suit?.red == true) RedSuit else Ink
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(if (compact) 5.dp else 8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFEFB)),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (compact) 1.dp else 2.dp)
+    ) {
+        Box(
+            Modifier.fillMaxSize()
+                .border(if (selected) 3.dp else 1.dp, if (selected) Gold else Color(0xFFD7D9DC), RoundedCornerShape(if (compact) 5.dp else 8.dp))
+                .padding(if (compact) 2.dp else 4.dp)
+        ) {
+            Column(Modifier.align(Alignment.TopStart), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(card.rank.shortLabel(), color = ink, fontSize = if (compact) 7.sp else 11.sp, fontWeight = FontWeight.Black)
+                Text(if (card.isJoker) "★" else card.suit?.symbol().orEmpty(), color = if (card.isJoker) Teal else ink, fontSize = if (compact) 6.sp else 8.sp)
+            }
+            Text(
+                if (card.isJoker) "★" else card.suit?.symbol().orEmpty(),
+                Modifier.align(Alignment.Center),
+                color = if (card.isJoker) Teal else ink,
+                fontSize = if (compact) 14.sp else 21.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun RoundSummary(state: GameState, next: () -> Unit, exit: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Surface(color = Ink.copy(alpha = .93f), shape = RoundedCornerShape(20.dp), modifier = Modifier.widthIn(max = 440.dp).padding(12.dp)) {
-            Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text(if (state.phase == TurnPhase.GAME_OVER) "Game Complete" else "Round Complete", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
-                Text(state.message, color = Gold, textAlign = TextAlign.Center, fontSize = 11.sp)
+        Surface(color = Ink.copy(alpha = .94f), shape = RoundedCornerShape(18.dp), modifier = Modifier.widthIn(max = 430.dp).padding(12.dp)) {
+            Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(if (state.phase == TurnPhase.GAME_OVER) "Game Complete" else "Round Complete", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                Text(state.message, color = Gold, fontSize = 10.sp, textAlign = TextAlign.Center)
                 state.players.sortedBy { it.score }.forEachIndexed { index, player ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("${index + 1}. ${player.name}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Text("+${player.roundPoints} · ${player.score}", color = if (index == 0) Gold else SoftWhite, fontSize = 10.sp)
+                        Text("${index + 1}. ${player.name}", color = Color.White, fontSize = 9.sp)
+                        Text("+${player.roundPoints} · ${player.score}", color = if (index == 0) Gold else SoftWhite, fontSize = 9.sp)
                     }
                 }
-                if (state.phase == TurnPhase.ROUND_OVER) Button(onClick = next, modifier = Modifier.fillMaxWidth().height(42.dp)) { Text("Deal Next Round") }
-                else Button(onClick = exit, modifier = Modifier.fillMaxWidth().height(42.dp)) { Text("Return") }
+                if (state.phase == TurnPhase.ROUND_OVER) {
+                    Button(onClick = next, modifier = Modifier.fillMaxWidth().height(40.dp)) { Text("Deal Next Round") }
+                } else {
+                    Button(onClick = exit, modifier = Modifier.fillMaxWidth().height(40.dp)) { Text("Return") }
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun MiniAvatar(index: Int, active: Boolean, size: androidx.compose.ui.unit.Dp = 42.dp) {
-    val accents = listOf(Color(0xFFFF8DA1), Color(0xFF86D7E8), Color(0xFFB4A0FF), Color(0xFF7EE0BD))
-    val accent = accents[index % accents.size]
-    Box(Modifier.size(size).clip(CircleShape).background(if (active) Gold else accent.copy(alpha = .38f)).padding(3.dp)) {
-        Canvas(Modifier.fillMaxSize()) {
-            val hair = listOf(Color(0xFF49352F), Color(0xFF263A57), Color(0xFF70432D), Color(0xFF302D2B))[index % 4]
-            drawCircle(hair, size.minDimension * .43f, Offset(center.x, center.y - size.height * .07f))
-            drawCircle(Color(0xFFFFD3B8), size.minDimension * .34f, Offset(center.x, center.y + size.height * .04f))
-            drawCircle(Ink, size.minDimension * .035f, Offset(center.x - size.width * .11f, center.y))
-            drawCircle(Ink, size.minDimension * .035f, Offset(center.x + size.width * .11f, center.y))
-        }
-    }
-}
-
-@Composable
-private fun FeltPattern() {
-    Canvas(Modifier.fillMaxSize()) {
-        val spacing = 31.dp.toPx(); var x = -size.height
-        while (x < size.width + size.height) { drawLine(Color.White.copy(alpha = .014f), Offset(x, 0f), Offset(x + size.height, size.height), 1.dp.toPx()); x += spacing }
     }
 }
 
 @Composable
 private fun RulesScreen(back: () -> Unit) {
-    AppBackdrop {
-        Row(Modifier.fillMaxSize().padding(18.dp), horizontalArrangement = Arrangement.spacedBy(15.dp)) {
-            Column(Modifier.width(220.dp)) {
+    Backdrop {
+        Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.width(215.dp)) {
                 TextButton(onClick = back) { Text("← Back", color = Color.White) }
-                Text("Carioca Rules", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
-                Text("The small corner goal box always shows the current contract and required card count.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+                Text("Carioca Rules", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Black)
+                Spacer(Modifier.height(8.dp))
+                Text("The game is horizontal-only. The corner box shows the current round contract without covering the meld table.", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
             }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Rule("Deck", "Two standard decks plus four Jokers: 108 cards. Red aces are ordinary natural cards.")
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Rule("Meld", "Collect the complete round contract. When the required cards exist in your hand, GOAL READY appears. Select the contract cards and drag them into the middle meld area.")
+                Rule("Multiple melds", "A full contract such as 2 legs is split into the required legal melds by the rules engine when you drop the complete selected contract onto the table.")
+                Rule("Draw / acquire", "Drag the draw pile or glowing discard pile into your hand. Pressing a pile does not draw a card.")
+                Rule("Discard", "Drag exactly one card from your hand onto the discard pile. There is no discard button.")
+                Rule("Add to meld", "After your round contract is complete, select extra cards and drag them directly onto the compatible meld you want to extend.")
                 Rule("Wildcards", "Jokers are the only wildcards. At most one Joker per meld, and it cannot be replaced after it is laid.")
-                Rule("Meld", "Complete the round contract by collecting the required legs/straights. The game detects when the complete contract exists in your hand. Select the contract cards and drag them into the middle meld area; multiple required melds can be created in one drop.")
-                Rule("Draw / acquire", "Acquiring a card is drag-only. Drag DRAW or the glowing top discard into your hand. Tapping the pile does not draw.")
-                Rule("Discard", "Discarding is drag-only. Drag one card from your hand onto the discard pile to finish the turn.")
-                Rule("Adding", "After your round contract has been melded, select extra card(s) and drag them directly onto a compatible meld already on the table.")
                 Rule("Rounds", "Regular mode has 8 rounds. Special mode adds crazy straight, colour straight, and royal straight as rounds 9–11.")
-                Rule("Going out", "Complete the round contract before going out. There is no −30 going-out bonus.")
-                Rule("Scoring", "Cards left in hand and steal penalties count against you. Lowest cumulative score wins.")
             }
         }
     }
@@ -717,45 +879,61 @@ private fun RulesScreen(back: () -> Unit) {
 
 @Composable
 private fun Rule(title: String, text: String) {
-    Surface(color = Color.White.copy(alpha = .07f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, color = Gold, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-            Text(text, color = SoftWhite, lineHeight = 16.sp, fontSize = 10.sp)
+    Surface(color = Color.White.copy(alpha = .07f), shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = Gold, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+            Text(text, color = SoftWhite, fontSize = 9.sp, lineHeight = 14.sp)
         }
     }
 }
 
 @Composable
-private fun DecorativeCards(modifier: Modifier) {
+private fun PlayerAvatar(index: Int, active: Boolean, avatarSize: Dp) {
+    val accents = listOf(Color(0xFFFF8DA1), Color(0xFF86D7E8), Color(0xFFB4A0FF), Color(0xFF7EE0BD))
+    Box(
+        Modifier.size(avatarSize).clip(CircleShape)
+            .background(if (active) Gold else accents[index % accents.size].copy(alpha = .40f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(if (index == 0) "Y" else index.toString(), color = Ink, fontSize = 9.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun DecorativeFan(modifier: Modifier) {
     Box(modifier) {
         listOf(Triple("A", "♥", RedSuit), Triple("K", "♠", Ink), Triple("J", "★", Teal)).forEachIndexed { index, item ->
             Surface(
-                color = Color(0xFFFFFEFB), shape = RoundedCornerShape(14.dp), shadowElevation = 8.dp,
-                modifier = Modifier.size(76.dp, 108.dp).align(Alignment.Center).graphicsLayer {
-                    translationX = (index - 1) * 38.dp.toPx(); translationY = kotlin.math.abs(index - 1) * 9.dp.toPx(); rotationZ = (index - 1) * 12f
+                color = Color(0xFFFFFEFB),
+                shape = RoundedCornerShape(13.dp),
+                shadowElevation = 8.dp,
+                modifier = Modifier.size(72.dp, 104.dp).align(Alignment.Center).graphicsLayer {
+                    translationX = (index - 1) * 36.dp.toPx()
+                    translationY = kotlin.math.abs(index - 1) * 8.dp.toPx()
+                    rotationZ = (index - 1) * 11f
                 }
             ) {
-                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                    Text(item.first, color = item.third, fontSize = 19.sp, fontWeight = FontWeight.Black)
-                    Text(item.second, color = item.third, fontSize = 30.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    Text(item.second, color = item.third, fontSize = 12.sp)
+                Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    Text(item.first, color = item.third, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                    Text(item.second, color = item.third, fontSize = 29.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    Text(item.second, color = item.third, fontSize = 11.sp)
                 }
             }
         }
     }
 }
 
-private fun androidx.compose.ui.layout.LayoutCoordinates.boundsInRootSafe(): Rect {
-    val p = positionInRoot()
-    return Rect(p, Size(size.width.toFloat(), size.height.toFloat()))
+private fun LayoutCoordinates.rootBounds(): Rect {
+    val position = positionInRoot()
+    return Rect(position, Size(size.width.toFloat(), size.height.toFloat()))
 }
 
 private fun RoundRule.description(): String {
     special?.let { return it.label() }
-    val parts = mutableListOf<String>()
-    if (legs > 0) parts += "$legs ${if (legs == 1) "leg" else "legs"}"
-    if (straights > 0) parts += "$straights ${if (straights == 1) "straight" else "straights"}"
-    return parts.joinToString(" + ")
+    val pieces = mutableListOf<String>()
+    if (legs > 0) pieces += "$legs ${if (legs == 1) "leg" else "legs"}"
+    if (straights > 0) pieces += "$straights ${if (straights == 1) "straight" else "straights"}"
+    return pieces.joinToString(" + ")
 }
 
 private fun MeldType.label(): String = when (this) {
