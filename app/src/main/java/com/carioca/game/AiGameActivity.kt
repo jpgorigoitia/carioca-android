@@ -1,9 +1,16 @@
 package com.carioca.game
 
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,6 +59,7 @@ import com.carioca.game.domain.Rank
 import com.carioca.game.domain.RoundRule
 import com.carioca.game.domain.Suit
 import com.carioca.game.domain.TurnPhase
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class AiGameActivity : ComponentActivity() {
@@ -74,7 +82,6 @@ private val AiLegal = Color(0xFF73E0C1)
 private val AiRed = Color(0xFFC93645)
 private val AiBack = Color(0xFF155B7A)
 private val AiShadow = Shadow(Color.Black.copy(alpha = .95f), Offset(2.4f, 2.4f), 4f)
-
 private val AiHandW = 50.dp
 private val AiHandH = 73.dp
 private val AiPileW = 58.dp
@@ -90,16 +97,12 @@ private fun AiGameRoot(onExit: () -> Unit) {
     var players by rememberSaveable { mutableIntStateOf(4) }
     var difficulty by rememberSaveable { mutableStateOf(Difficulty.MEDIUM) }
 
-    BackHandler {
-        if (screen == AiScreen.TABLE) screen = AiScreen.SETUP else onExit()
-    }
+    BackHandler { if (screen == AiScreen.TABLE) screen = AiScreen.SETUP else onExit() }
 
     MaterialTheme(colorScheme = darkColorScheme(primary = AiTeal, secondary = AiGold)) {
         when (screen) {
             AiScreen.SETUP -> AiSetup(
-                mode = mode,
-                players = players,
-                difficulty = difficulty,
+                mode, players, difficulty,
                 setMode = { mode = it },
                 setPlayers = { players = it },
                 setDifficulty = { difficulty = it },
@@ -140,14 +143,19 @@ private fun AiSetup(
                 border = androidx.compose.foundation.BorderStroke(1.dp, AiGold.copy(alpha = .28f))
             ) {
                 Column(
-                    Modifier.fillMaxSize().background(Brush.radialGradient(listOf(AiTeal.copy(alpha = .42f), AiFeltDark))).padding(18.dp),
+                    Modifier.fillMaxSize()
+                        .background(Brush.radialGradient(listOf(AiTeal.copy(alpha = .42f), AiFeltDark)))
+                        .padding(18.dp),
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text("CARIOCA", color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = AiShadow))
                     Text("AI PRACTICE", color = AiGold, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp, style = TextStyle(shadow = AiShadow))
                     Spacer(Modifier.height(10.dp))
                     Text("Cards are the controls.", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, style = TextStyle(shadow = AiShadow))
-                    Text("Drag a pile into your hand to draw. Tap each required Trio or Straight to keep its cards selected. When the complete round goal is selected, drag the group to the table. Drag one card onto DISCARD to end the turn. Drag cards sideways in your hand to rearrange them.", color = AiSoft, fontSize = 10.sp, lineHeight = 14.sp)
+                    Text(
+                        "Drag DRAW or the top DISCARD into your hand. Tap cards to select the complete round goal, then drag that group to the table. Drag cards onto table melds after lowering. Drag one card to DISCARD to end your turn. Drag sideways in your hand to rearrange.",
+                        color = AiSoft, fontSize = 10.sp, lineHeight = 14.sp
+                    )
                 }
             }
 
@@ -168,7 +176,9 @@ private fun AiSetup(
                         (2..4).forEach { count -> FilterChip(selected = players == count, onClick = { setPlayers(count) }, label = { Text(count.toString()) }) }
                     }
                     AiOptionRow("AI difficulty") {
-                        Difficulty.entries.forEach { level -> FilterChip(selected = difficulty == level, onClick = { setDifficulty(level) }, label = { Text(level.name.aiPretty(), fontSize = 10.sp) }) }
+                        Difficulty.entries.forEach { level ->
+                            FilterChip(selected = difficulty == level, onClick = { setDifficulty(level) }, label = { Text(level.name.aiPretty(), fontSize = 10.sp) })
+                        }
                     }
                 }
             }
@@ -220,6 +230,13 @@ private fun AiTable(mode: GameMode, players: Int, difficulty: Difficulty, onExit
     var handOrder by remember { mutableStateOf<List<GameCard>>(emptyList()) }
 
     val human = state.players.first()
+    val humanStealWindow = state.phase == TurnPhase.STEAL_WINDOW && state.currentPlayer == 0
+    val tone = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 42) }
+    DisposableEffect(Unit) { onDispose { tone.release() } }
+    LaunchedEffect(humanStealWindow) {
+        if (humanStealWindow) tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 140)
+    }
+
     LaunchedEffect(human.hand) {
         val current = human.hand.toSet()
         val kept = handOrder.filter { it in current }
@@ -236,36 +253,23 @@ private fun AiTable(mode: GameMode, players: Int, difficulty: Difficulty, onExit
     fun reorderInHand(card: GameCard, point: Offset) {
         val ordered = handOrder.filter { it in human.hand }.toMutableList()
         if (card !in ordered) return
-        val from = ordered.indexOf(card)
-        ordered.removeAt(from)
-        val nearest = handCardBounds
-            .filterKeys { it != card && it in ordered }
-            .minByOrNull { (_, rect) -> kotlin.math.abs(rect.center.x - point.x) }
-            ?.key
+        ordered.remove(card)
+        val nearest = handCardBounds.filterKeys { it != card && it in ordered }
+            .minByOrNull { (_, rect) -> abs(rect.center.x - point.x) }?.key
         val target = nearest?.let { ordered.indexOf(it) } ?: ordered.size
         ordered.add(target.coerceIn(0, ordered.size), card)
         handOrder = ordered
     }
 
-    fun lowerSelectedGoal() {
-        if (canLowerGoal) state = GameEngine.createMeld(state)
-    }
-
     fun dropCard(card: GameCard, point: Offset) {
-        if (state.currentPlayer != 0) return
-
+        if (state.currentPlayer != 0 || state.phase == TurnPhase.STEAL_WINDOW) return
         if (handBounds != Rect.Zero && handBounds.contains(point)) {
             reorderInHand(card, point)
             dragPoint = null
             floating = null
             return
         }
-
-        if (state.phase != TurnPhase.ACTION) {
-            dragPoint = null
-            floating = null
-            return
-        }
+        if (state.phase != TurnPhase.ACTION) return
 
         val group = if (card in state.selected && state.selected.isNotEmpty()) state.selected else setOf(card)
         val target = meldBounds.entries.firstOrNull { it.value.contains(point) }?.key
@@ -292,11 +296,8 @@ private fun AiTable(mode: GameMode, players: Int, difficulty: Difficulty, onExit
                     AiRoundSummary(state, { state = GameEngine.nextRound(state) }, onExit)
                 } else {
                     AiGoalPanel(
-                        state = state,
-                        selectedCount = selectedCards.size,
-                        selectedGroups = selectedGroups,
-                        canLower = canLowerGoal,
-                        onLower = ::lowerSelectedGoal,
+                        state, selectedCards.size, selectedGroups, canLowerGoal,
+                        onLower = { if (canLowerGoal) state = GameEngine.createMeld(state) },
                         modifier = Modifier.align(Alignment.TopStart).padding(7.dp).width(164.dp)
                     )
 
@@ -316,7 +317,9 @@ private fun AiTable(mode: GameMode, players: Int, difficulty: Difficulty, onExit
                         setDiscardBounds = { discardBounds = it },
                         onDrag = { dragPoint = it },
                         onDraw = { state = GameEngine.drawFromDeck(state) },
-                        onSteal = { state = GameEngine.stealDiscard(state) },
+                        onTakeDiscard = { state = GameEngine.takeDiscard(state) },
+                        onSteal = { state = GameEngine.stealAvailableDiscard(state) },
+                        onPass = { state = GameEngine.passSteal(state) },
                         modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).width(146.dp)
                     )
 
@@ -345,8 +348,8 @@ private fun AiTable(mode: GameMode, players: Int, difficulty: Difficulty, onExit
         }
 
         if (floating != null && dragPoint != null) {
-            val groupCount = if (floating in state.selected) state.selected.size.coerceAtLeast(1) else 1
-            AiFloatingCard(floating!!, dragPoint!!, groupCount)
+            val count = if (floating in state.selected) state.selected.size.coerceAtLeast(1) else 1
+            AiFloatingCard(floating!!, dragPoint!!, count)
         }
     }
 }
@@ -368,7 +371,11 @@ private fun AiOpponents(state: GameState) {
     Row(Modifier.fillMaxWidth().height(45.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
         state.players.drop(1).forEachIndexed { i, player ->
             val active = state.currentPlayer == i + 1
-            Surface(color = Color.White.copy(alpha = .07f), shape = RoundedCornerShape(12.dp), border = androidx.compose.foundation.BorderStroke(if (active) 2.dp else 1.dp, if (active) AiGold else Color.White.copy(alpha = .08f))) {
+            Surface(
+                color = Color.White.copy(alpha = .07f),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(if (active) 2.dp else 1.dp, if (active) AiGold else Color.White.copy(alpha = .08f))
+            ) {
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(26.dp).clip(CircleShape).background(if (active) AiGold else AiTeal.copy(alpha = .45f)), contentAlignment = Alignment.Center) {
                         Text((i + 1).toString(), color = AiInk, fontSize = 9.sp, fontWeight = FontWeight.Black)
@@ -395,7 +402,6 @@ private fun AiGoalPanel(
     modifier: Modifier
 ) {
     val player = state.players.first()
-    val all = GameRules.requiredTypes(state.roundRule)
     val remaining = GameEngine.remainingRequirements(player, state.roundRule)
     val complete = GameEngine.contractComplete(player, state.roundRule)
     val ready = !complete && GameEngine.contractReady(player, state.roundRule)
@@ -405,7 +411,12 @@ private fun AiGoalPanel(
         else -> Color.White.copy(alpha = .10f)
     }
 
-    Surface(modifier, color = AiInk.copy(alpha = .88f), shape = RoundedCornerShape(13.dp), border = androidx.compose.foundation.BorderStroke(if (complete || canLower || selectedGroups > 0) 2.dp else 1.dp, borderColor)) {
+    Surface(
+        modifier,
+        color = AiInk.copy(alpha = .88f),
+        shape = RoundedCornerShape(13.dp),
+        border = androidx.compose.foundation.BorderStroke(if (complete || canLower || selectedGroups > 0) 2.dp else 1.dp, borderColor)
+    ) {
         Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("ROUND GOAL", color = AiGold, fontSize = 7.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
             Text(state.roundRule.aiGoalTitle(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = AiShadow))
@@ -425,24 +436,8 @@ private fun AiGoalPanel(
             )
             if (!complete && remaining.isNotEmpty()) Text("Required: ${remaining.joinToString(" + ") { it.aiLabel() }}", color = AiGold, fontSize = 7.sp)
             Text("Selected cards: $selectedCount", color = if (selectedCount > 0) Color.White else AiMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-            Button(
-                onClick = onLower,
-                enabled = canLower,
-                modifier = Modifier.fillMaxWidth().height(36.dp),
-                contentPadding = PaddingValues(horizontal = 5.dp),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text(
-                    when {
-                        canLower -> "LOWER ROUND GOAL"
-                        selectedGroups > 0 -> "KEEP SELECTING (${selectedGroups}/${remaining.size})"
-                        complete -> "GOAL LOWERED"
-                        else -> "SELECT FULL GOAL"
-                    },
-                    fontSize = 7.sp,
-                    fontWeight = FontWeight.Black,
-                    textAlign = TextAlign.Center
-                )
+            Button(onClick = onLower, enabled = canLower, modifier = Modifier.fillMaxWidth().height(36.dp), contentPadding = PaddingValues(horizontal = 5.dp), shape = RoundedCornerShape(10.dp)) {
+                Text(if (canLower) "LOWER ROUND GOAL" else if (selectedGroups > 0) "KEEP SELECTING" else if (complete) "GOAL LOWERED" else "SELECT FULL GOAL", fontSize = 7.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
             }
         }
     }
@@ -456,23 +451,37 @@ private fun AiPileStation(
     setDiscardBounds: (Rect) -> Unit,
     onDrag: (Offset?) -> Unit,
     onDraw: () -> Unit,
+    onTakeDiscard: () -> Unit,
     onSteal: () -> Unit,
+    onPass: () -> Unit,
     modifier: Modifier
 ) {
-    val canDraw = state.currentPlayer == 0 && state.phase == TurnPhase.DRAW
-    val canSteal = canDraw && state.discardPile.isNotEmpty()
+    val normalDraw = state.currentPlayer == 0 && state.phase == TurnPhase.DRAW
+    val stealWindow = state.currentPlayer == 0 && state.phase == TurnPhase.STEAL_WINDOW
+    val discardDraggable = (normalDraw || stealWindow) && state.discardPile.isNotEmpty()
     var localDiscardBounds by remember { mutableStateOf(Rect.Zero) }
     val discardHover = dragPoint?.let { localDiscardBounds != Rect.Zero && localDiscardBounds.contains(it) } == true
+    val pulse by rememberInfiniteTransition(label = "stealGlow").animateFloat(
+        initialValue = .42f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(520), RepeatMode.Reverse),
+        label = "stealPulse"
+    )
+    val accent = when {
+        stealWindow -> AiLegal.copy(alpha = pulse)
+        discardHover -> AiLegal
+        else -> AiGold.copy(alpha = .75f)
+    }
 
-    Surface(modifier, color = AiInk.copy(alpha = .76f), shape = RoundedCornerShape(14.dp), border = androidx.compose.foundation.BorderStroke(2.dp, if (discardHover) AiLegal else Color.White.copy(alpha = .12f))) {
+    Surface(modifier, color = AiInk.copy(alpha = .78f), shape = RoundedCornerShape(14.dp), border = androidx.compose.foundation.BorderStroke(2.dp, if (stealWindow) AiLegal.copy(alpha = pulse) else Color.White.copy(alpha = .12f))) {
         Column(Modifier.padding(7.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text("DRAW / DISCARD", color = AiGold, fontSize = 8.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = AiShadow))
+            Text(if (stealWindow) "STEAL AVAILABLE · +2" else "DRAW / DISCARD", color = if (stealWindow) AiLegal else AiGold, fontSize = 8.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = AiShadow))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.border(if (canDraw) 2.dp else 0.dp, if (canDraw) AiLegal else Color.Transparent, RoundedCornerShape(9.dp))) {
-                        AiDraggablePile(canDraw, handBounds, onDrag, onDraw) { AiDrawPile(state.drawPile.size) }
+                    Box(Modifier.border(if (normalDraw) 2.dp else 0.dp, if (normalDraw) AiLegal else Color.Transparent, RoundedCornerShape(9.dp))) {
+                        AiDraggablePile(normalDraw, handBounds, onDrag, onDraw) { AiDrawPile(state.drawPile.size) }
                     }
-                    Text("DRAW", color = if (canDraw) AiLegal else AiSoft, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                    Text("DRAW", color = if (normalDraw) AiLegal else AiMuted, fontSize = 7.sp, fontWeight = FontWeight.Black)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
@@ -481,22 +490,31 @@ private fun AiPileStation(
                                 localDiscardBounds = it.aiRootBounds()
                                 setDiscardBounds(localDiscardBounds)
                             }
-                            .border(if (discardHover || canSteal) 3.dp else 2.dp, if (discardHover || canSteal) AiLegal else AiGold.copy(alpha = .75f), RoundedCornerShape(9.dp)),
+                            .border(if (stealWindow || discardHover) 3.dp else 2.dp, accent, RoundedCornerShape(9.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         val top = state.discardPile.lastOrNull()
                         if (top == null) {
                             Box(Modifier.fillMaxSize().background(AiInk.copy(alpha = .55f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                                Text("DROP\nHERE", color = AiGold, fontSize = 7.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                                Text("DISCARD", color = AiGold, fontSize = 7.sp, fontWeight = FontWeight.Black)
                             }
                         } else {
-                            AiDraggablePile(canSteal, handBounds, onDrag, onSteal) { AiCardFace(top, false, Modifier.fillMaxSize()) }
+                            AiDraggablePile(discardDraggable, handBounds, onDrag, if (stealWindow) onSteal else onTakeDiscard) {
+                                AiCardFace(top, false, Modifier.fillMaxSize())
+                            }
                         }
                     }
-                    Text("DISCARD", color = AiGold, fontSize = 8.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = AiShadow))
+                    Text(if (stealWindow) "STEAL +2" else "DISCARD", color = if (stealWindow) AiLegal else AiGold, fontSize = 8.sp, fontWeight = FontWeight.Black, style = TextStyle(shadow = AiShadow))
                 }
             }
-            Text(if (canDraw) "Drag DRAW or available DISCARD into your hand" else "Drag one hand card onto DISCARD", color = AiSoft, fontSize = 6.sp, lineHeight = 8.sp, textAlign = TextAlign.Center)
+            if (stealWindow) {
+                OutlinedButton(onClick = onPass, modifier = Modifier.fillMaxWidth().height(30.dp), contentPadding = PaddingValues(2.dp)) {
+                    Text("PASS", fontSize = 7.sp, fontWeight = FontWeight.Black)
+                }
+                Text("Drag DISCARD into your hand to steal, or PASS", color = AiLegal, fontSize = 6.sp, lineHeight = 8.sp, textAlign = TextAlign.Center)
+            } else {
+                Text(if (normalDraw) "Drag DRAW or top DISCARD into your hand" else "Drag one hand card onto DISCARD", color = AiSoft, fontSize = 6.sp, lineHeight = 8.sp, textAlign = TextAlign.Center)
+            }
         }
     }
 }
@@ -533,7 +551,7 @@ private fun AiMeldArea(
             Text("MELD AREA", color = if (canCreateMeld) AiLegal else Color.White.copy(alpha = .62f), fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
             if (state.players.all { it.melds.isEmpty() }) {
                 Box(Modifier.fillMaxWidth().height(85.dp), contentAlignment = Alignment.Center) {
-                    Text("Build the round goal by selecting each required Trio/Straight.\nKeep those cards selected. When the full goal is ready, drag the selected group here.", color = Color.White.copy(alpha = .58f), fontSize = 8.sp, lineHeight = 11.sp, textAlign = TextAlign.Center)
+                    Text("Select each required Trio/Straight and keep those cards selected.\nWhen the full round goal is ready, drag the selected group here.", color = Color.White.copy(alpha = .58f), fontSize = 8.sp, lineHeight = 11.sp, textAlign = TextAlign.Center)
                 }
             }
             state.players.forEachIndexed { owner, player ->
@@ -545,16 +563,10 @@ private fun AiMeldArea(
                                 val target = AiMeldTarget(owner, meldIndex)
                                 var bounds by remember(owner, meldIndex, meld.cards.size) { mutableStateOf(Rect.Zero) }
                                 val over = dragPoint?.let { bounds != Rect.Zero && bounds.contains(it) } == true
-                                AiMeldFan(
-                                    meld = meld,
-                                    cardW = cardW,
-                                    cardH = cardH,
-                                    highlight = over,
-                                    modifier = Modifier.onGloballyPositioned {
-                                        bounds = it.aiRootBounds()
-                                        onMeldBounds(target, bounds)
-                                    }
-                                )
+                                AiMeldFan(meld, cardW, cardH, over, Modifier.onGloballyPositioned {
+                                    bounds = it.aiRootBounds()
+                                    onMeldBounds(target, bounds)
+                                })
                             }
                         }
                     }
@@ -589,7 +601,7 @@ private fun AiHandDock(
     onDrop: (GameCard, Offset) -> Unit,
     modifier: Modifier
 ) {
-    val humanCanTouch = state.currentPlayer == 0
+    val humanCanTouch = state.currentPlayer == 0 && state.phase != TurnPhase.STEAL_WINDOW
     Box(modifier.onGloballyPositioned { setHandBounds(it.aiRootBounds()) }.background(AiInk.copy(alpha = .84f), RoundedCornerShape(16.dp)).border(1.dp, Color.White.copy(alpha = .08f), RoundedCornerShape(16.dp))) {
         Row(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.width(116.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -597,13 +609,12 @@ private fun AiHandDock(
                 Text("${cards.size} cards · Selected $selectedCount", color = if (selectedCount > 0) AiGold else AiMuted, fontSize = 6.sp)
                 Text(
                     when {
-                        state.phase == TurnPhase.DRAW && humanCanTouch -> "Draw first · cards can still be rearranged"
-                        state.phase == TurnPhase.ACTION && humanCanTouch -> "Tap to select · drag to lower / discard / reorder"
-                        else -> "AI turn"
+                        state.phase == TurnPhase.STEAL_WINDOW && state.currentPlayer == 0 -> "Steal or pass above"
+                        state.phase == TurnPhase.DRAW && state.currentPlayer == 0 -> "Draw first · cards may be rearranged"
+                        state.phase == TurnPhase.ACTION && state.currentPlayer == 0 -> "Tap select · drag lower / discard / reorder"
+                        else -> "Opponent turn"
                     },
-                    color = AiMuted,
-                    fontSize = 6.sp,
-                    textAlign = TextAlign.Center
+                    color = AiMuted, fontSize = 6.sp, textAlign = TextAlign.Center
                 )
             }
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy((-9).dp), verticalAlignment = Alignment.CenterVertically) {
@@ -720,19 +731,10 @@ private fun AiFloatingCard(card: GameCard, center: Offset, groupCount: Int) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val w = with(density) { AiHandW.toPx() }
     val h = with(density) { AiHandH.toPx() }
-    Box(
-        Modifier.offset { IntOffset((center.x - w / 2).roundToInt(), (center.y - h / 2).roundToInt()) }
-            .size(AiHandW, AiHandH)
-            .zIndex(100f)
-    ) {
+    Box(Modifier.offset { IntOffset((center.x - w / 2).roundToInt(), (center.y - h / 2).roundToInt()) }.size(AiHandW, AiHandH).zIndex(100f)) {
         if (groupCount > 1) {
             repeat(minOf(groupCount - 1, 3)) { index ->
-                Box(
-                    Modifier.matchParentSize()
-                        .offset(x = (index + 1).dp, y = (index + 1).dp)
-                        .background(Color.White.copy(alpha = .88f), RoundedCornerShape(8.dp))
-                        .border(1.dp, AiGold.copy(alpha = .65f), RoundedCornerShape(8.dp))
-                )
+                Box(Modifier.matchParentSize().offset(x = (index + 1).dp, y = (index + 1).dp).background(Color.White.copy(alpha = .88f), RoundedCornerShape(8.dp)).border(1.dp, AiGold.copy(alpha = .65f), RoundedCornerShape(8.dp)))
             }
         }
         AiCardFace(card, true, Modifier.matchParentSize().graphicsLayer { scaleX = 1.1f; scaleY = 1.1f; shadowElevation = 14.dp.toPx() })
