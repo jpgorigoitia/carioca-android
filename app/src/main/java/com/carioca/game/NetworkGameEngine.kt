@@ -6,8 +6,6 @@ import com.carioca.game.domain.GameEngine
 import com.carioca.game.domain.GameMode
 import com.carioca.game.domain.GameRules
 import com.carioca.game.domain.GameState
-import com.carioca.game.domain.Meld
-import com.carioca.game.domain.MeldType
 import com.carioca.game.domain.PlayerState
 import com.carioca.game.domain.TurnPhase
 import kotlin.random.Random
@@ -20,12 +18,11 @@ object NetworkGameEngine {
     }
 
     fun drawFromDeck(state: GameState, seat: Int): GameState = draw(state, seat, fromDiscard = false)
-
     fun stealDiscard(state: GameState, seat: Int): GameState = draw(state, seat, fromDiscard = true)
 
     fun layCards(state: GameState, seat: Int, chosen: Set<Card>): GameState {
         if (!validTurn(state, seat, TurnPhase.ACTION)) return state.copy(message = "It is not your action phase.")
-        if (chosen.isEmpty()) return state.copy(message = "Select cards before creating a meld.")
+        if (chosen.isEmpty()) return state.copy(message = "Select the complete round goal before lowering.")
 
         val player = state.players[seat]
         val cards = player.hand.filter { it in chosen }
@@ -33,38 +30,32 @@ object NetworkGameEngine {
 
         val remaining = GameEngine.remainingRequirements(player, state.roundRule)
         if (remaining.isNotEmpty()) {
-            val completePlan = GameRules.findMeldPlan(cards, remaining, useAllCards = true)
-            val singlePlan = if (completePlan == null) {
-                remaining.firstNotNullOfOrNull { type ->
-                    if (GameRules.validInitial(type, cards)) listOf(Meld(type, cards)) else null
-                }
-            } else null
-            val plan = completePlan ?: singlePlan
-                ?: return state.copy(
-                    message = when {
-                        cards.size == 3 && remaining.contains(MeldType.LEG) -> "A Trio is 3 cards of the same rank."
-                        cards.size == 4 && remaining.contains(MeldType.STRAIGHT) -> "A Straight is 4 consecutive cards of the same suit."
-                        GameEngine.nextMeldReady(player, state.roundRule) -> "A required meld is available. Select exactly that Trio or Straight."
-                        else -> "Those selected cards do not form a required meld for this round."
+            val fullPlan = GameRules.findMeldPlan(cards, remaining, useAllCards = true)
+            if (fullPlan == null) {
+                val partial = GameRules.findPartialMeldPlan(cards, remaining)
+                return state.copy(
+                    message = if (partial != null) {
+                        "${partial.size}/${remaining.size} required melds selected. Select the rest before lowering."
+                    } else if (GameEngine.contractReady(player, state.roundRule)) {
+                        "Your full round goal is available. Select every required Trio/Straight, then drag them to the table."
+                    } else {
+                        "That selection does not match this round's goal."
                     }
                 )
+            }
 
+            val used = fullPlan.flatMap { it.cards }.toSet()
             val updated = player.copy(
-                hand = sortHand(player.hand.filterNot { it in chosen }),
-                melds = player.melds + plan,
+                hand = sortHand(player.hand.filterNot { it in used }),
+                melds = player.melds + fullPlan,
                 roundPoints = 0
             )
-            val remainingAfter = GameEngine.remainingRequirements(updated, state.roundRule)
             var next = state.copy(
                 players = state.players.toMutableList().also { it[seat] = updated },
                 selected = emptySet(),
-                message = if (remainingAfter.isEmpty()) {
-                    "ROUND GOAL COMPLETE. Add cards to compatible table melds, then discard."
-                } else {
-                    "Meld placed. ${remainingAfter.size} required meld${if (remainingAfter.size == 1) "" else "s"} remaining."
-                }
+                message = "ROUND GOAL LOWERED. Add cards to compatible table melds, then discard."
             )
-            if (updated.hand.isEmpty() && GameEngine.contractComplete(updated, state.roundRule)) next = finishRound(next, seat)
+            if (updated.hand.isEmpty()) next = finishRound(next, seat)
             return next
         }
 
@@ -84,7 +75,7 @@ object NetworkGameEngine {
         if (!validTurn(state, seat, TurnPhase.ACTION)) return state.copy(message = "It is not your action phase.")
         val player = state.players[seat]
         if (!GameEngine.contractComplete(player, state.roundRule)) {
-            return state.copy(message = "Complete your round goal before adding to existing melds.")
+            return state.copy(message = "Lower your complete round goal before adding to existing melds.")
         }
         if (chosen.isEmpty()) return state
         val cards = player.hand.filter { it in chosen }
@@ -99,7 +90,9 @@ object NetworkGameEngine {
         if (!validTurn(state, seat, TurnPhase.ACTION)) return state.copy(message = "It is not your action phase.")
         val player = state.players[seat]
         if (card !in player.hand) return state.copy(message = "That card is no longer in your hand.")
-        if (player.hand.size == 1 && !GameEngine.contractComplete(player, state.roundRule)) return state.copy(message = "Complete this round's goal before going out.")
+        if (player.hand.size == 1 && !GameEngine.contractComplete(player, state.roundRule)) {
+            return state.copy(message = "Lower this round's complete goal before going out.")
+        }
 
         val updated = player.copy(hand = sortHand(player.hand - card))
         var next = state.copy(
@@ -109,7 +102,7 @@ object NetworkGameEngine {
         )
         if (updated.hand.isEmpty() && GameEngine.contractComplete(updated, state.roundRule)) return finishRound(next, seat)
         val nextSeat = (seat + 1) % state.players.size
-        next = next.copy(currentPlayer = nextSeat, phase = TurnPhase.DRAW, message = "${next.players[nextSeat].name}'s turn. Drag DRAW or DISCARD into the hand.")
+        next = next.copy(currentPlayer = nextSeat, phase = TurnPhase.DRAW, message = "${next.players[nextSeat].name}'s turn. Drag DRAW or the available DISCARD into the hand.")
         return next
     }
 
@@ -135,8 +128,7 @@ object NetworkGameEngine {
 
         val player = state.players[seat]
         val updated = player.copy(hand = sortHand(player.hand + card), steals = player.steals + if (fromDiscard) 1 else 0)
-        val fullGoalReady = GameEngine.contractReady(updated, state.roundRule)
-        val oneMeldReady = GameEngine.nextMeldReady(updated, state.roundRule)
+        val ready = GameEngine.contractReady(updated, state.roundRule)
         return state.copy(
             players = state.players.toMutableList().also { it[seat] = updated },
             drawPile = if (fromDiscard) draw else draw.drop(1),
@@ -144,10 +136,9 @@ object NetworkGameEngine {
             phase = TurnPhase.ACTION,
             selected = emptySet(),
             message = when {
-                fullGoalReady && !GameEngine.contractComplete(updated, state.roundRule) -> "ROUND GOAL READY — select and meld the required groups."
-                oneMeldReady -> "A required Trio or Straight is ready to meld."
-                fromDiscard -> "Discard taken: +2 points. Meld if possible, then discard."
-                else -> "Card drawn. Meld if possible, then discard."
+                ready && !GameEngine.contractComplete(updated, state.roundRule) -> "ROUND GOAL READY — select all required melds and drag them to the table."
+                fromDiscard -> "Discard taken: +2 points. Lower if ready, then discard."
+                else -> "Card drawn. Lower if ready, then discard."
             }
         )
     }
@@ -218,7 +209,7 @@ object NetworkGameEngine {
             currentPlayer = 0,
             phase = TurnPhase.DRAW,
             selected = emptySet(),
-            message = "Round ${rule.number}. ${players.first().name} drags DRAW or DISCARD into the hand first."
+            message = "Round ${rule.number}. ${players.first().name} drags DRAW or the available DISCARD into the hand first."
         )
     }
 
