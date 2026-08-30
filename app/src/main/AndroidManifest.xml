@@ -8,6 +8,11 @@
         android:label="Carioca"
         android:theme="@style/Theme.Carioca">
         <activity
+            android:name=".AiGameActivity"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|keyboardHidden"
