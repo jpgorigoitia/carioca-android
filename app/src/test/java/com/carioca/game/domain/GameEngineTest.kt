@@ -25,11 +25,68 @@ class GameEngineTest {
     }
 
     @Test
-    fun takingDiscardAddsTwoPointPenaltyHook() {
+    fun takingTopDiscardOnOwnTurnHasNoStealPenalty() {
         val initial = GameEngine.newGame(GameMode.REGULAR, 2, Difficulty.MEDIUM, seed = 9)
-        val taken = GameEngine.stealDiscard(initial)
-        assertEquals(1, taken.players.first().steals)
+        val taken = GameEngine.takeDiscard(initial)
+        assertEquals(0, taken.players.first().steals)
         assertEquals(12, taken.players.first().hand.size)
+        assertEquals(0, taken.discardPile.size)
+        assertEquals(TurnPhase.ACTION, taken.phase)
+    }
+
+    @Test
+    fun outOfTurnStealAddsTwoPointPenaltyHook() {
+        val card = Card(Rank.KING, Suit.HEARTS, deck = 0)
+        val players = listOf(
+            PlayerState("You", true, hand = listOf(Card(Rank.TWO, Suit.CLUBS))),
+            PlayerState("AI 1", false, hand = listOf(Card(Rank.THREE, Suit.CLUBS))),
+            PlayerState("AI 2", false, hand = listOf(Card(Rank.FOUR, Suit.CLUBS))),
+            PlayerState("AI 3", false, hand = listOf(Card(Rank.FIVE, Suit.CLUBS)))
+        )
+        val state = GameState(
+            mode = GameMode.REGULAR,
+            difficulty = Difficulty.EASY,
+            roundIndex = 0,
+            players = players,
+            drawPile = GameRules.deck().take(20),
+            discardPile = listOf(card),
+            currentPlayer = 0,
+            phase = TurnPhase.STEAL_WINDOW,
+            pendingNextPlayer = 0,
+            stealQueue = listOf(0)
+        )
+
+        val stolen = GameEngine.stealAvailableDiscard(state)
+
+        assertEquals(1, stolen.players.first().steals)
+        assertTrue(card in stolen.players.first().hand)
+        assertTrue(stolen.discardPile.isEmpty())
+    }
+
+    @Test
+    fun humanCanPassOutOfTurnSteal() {
+        val state = GameState(
+            mode = GameMode.REGULAR,
+            difficulty = Difficulty.EASY,
+            roundIndex = 0,
+            players = listOf(
+                PlayerState("You", true),
+                PlayerState("AI 1", false),
+                PlayerState("AI 2", false)
+            ),
+            drawPile = GameRules.deck().take(20),
+            discardPile = listOf(Card(Rank.NINE, Suit.SPADES)),
+            currentPlayer = 0,
+            phase = TurnPhase.STEAL_WINDOW,
+            pendingNextPlayer = 0,
+            stealQueue = listOf(0)
+        )
+
+        val passed = GameEngine.passSteal(state)
+
+        assertEquals(TurnPhase.DRAW, passed.phase)
+        assertEquals(0, passed.currentPlayer)
+        assertTrue(passed.stealQueue.isEmpty())
     }
 
     @Test
