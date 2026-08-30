@@ -21,6 +21,38 @@ class GameRulesTest {
     }
 
     @Test
+    fun trioIsExactlyThreeSameRankCardsWhenFirstMelded() {
+        val trio = listOf(
+            Card(Rank.SEVEN, Suit.CLUBS, deck = 0),
+            Card(Rank.SEVEN, Suit.HEARTS, deck = 0),
+            Card(Rank.SEVEN, Suit.CLUBS, deck = 1)
+        )
+        assertTrue(GameRules.validInitial(MeldType.LEG, trio))
+    }
+
+    @Test
+    fun duplicateSuitIsLegalInTrioBecauseTwoDecksAreUsed() {
+        val trio = listOf(
+            Card(Rank.NINE, Suit.SPADES, deck = 0),
+            Card(Rank.NINE, Suit.SPADES, deck = 1),
+            Card(Rank.NINE, Suit.DIAMONDS, deck = 0)
+        )
+        assertTrue(GameRules.validInitial(MeldType.LEG, trio))
+    }
+
+    @Test
+    fun fourCardsCannotBeUsedAsTheInitialTrioButCanExtendOne() {
+        val four = listOf(
+            Card(Rank.QUEEN, Suit.CLUBS, deck = 0),
+            Card(Rank.QUEEN, Suit.HEARTS, deck = 0),
+            Card(Rank.QUEEN, Suit.CLUBS, deck = 1),
+            Card(Rank.QUEEN, Suit.SPADES, deck = 0)
+        )
+        assertFalse(GameRules.validInitial(MeldType.LEG, four))
+        assertTrue(GameRules.valid(MeldType.LEG, four))
+    }
+
+    @Test
     fun twoJokersInvalidateAnyMeld() {
         val cards = listOf(
             Card(Rank.SEVEN, Suit.CLUBS),
@@ -39,6 +71,19 @@ class GameRulesTest {
             Card(Rank.JOKER),
             Card(Rank.SEVEN, Suit.CLUBS)
         )
+        assertTrue(GameRules.validInitial(MeldType.STRAIGHT, cards))
+    }
+
+    @Test
+    fun fiveCardRunIsExtensionNotInitialStraight() {
+        val cards = listOf(
+            Card(Rank.FOUR, Suit.CLUBS),
+            Card(Rank.FIVE, Suit.CLUBS),
+            Card(Rank.SIX, Suit.CLUBS),
+            Card(Rank.SEVEN, Suit.CLUBS),
+            Card(Rank.EIGHT, Suit.CLUBS)
+        )
+        assertFalse(GameRules.validInitial(MeldType.STRAIGHT, cards))
         assertTrue(GameRules.valid(MeldType.STRAIGHT, cards))
     }
 
@@ -50,7 +95,16 @@ class GameRulesTest {
             Card(Rank.TWO, Suit.CLUBS),
             Card(Rank.THREE, Suit.CLUBS)
         )
-        assertFalse(GameRules.valid(MeldType.STRAIGHT, cards))
+        assertFalse(GameRules.validInitial(MeldType.STRAIGHT, cards))
+    }
+
+    @Test
+    fun establishedRoundSequenceIsPreserved() {
+        assertEquals(listOf(MeldType.LEG, MeldType.LEG), GameRules.requiredTypes(GameRules.rounds[0]))
+        assertEquals(listOf(MeldType.LEG, MeldType.STRAIGHT), GameRules.requiredTypes(GameRules.rounds[1]))
+        assertEquals(4, GameRules.rounds[6].legs)
+        assertEquals(3, GameRules.rounds[7].straights)
+        assertEquals(13, GameRules.rounds[7].deal)
     }
 
     @Test
