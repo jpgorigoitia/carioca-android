@@ -1,19 +1,46 @@
-# Carioca Android MVP
+# Carioca Android
 
-An ad-free Kotlin + Jetpack Compose implementation of Carioca for 2–4 players.
+A free, ad-free Kotlin + Jetpack Compose implementation of Carioca for Android.
 
-## Current build
+## Product direction
 
-- Regular (8 rounds) and Special (11 rounds) selection
-- Practice setup for 2–4 players with Easy, Medium, and Hard AI choices
-- Interactive table demo with legal-steal shine and audio cue
+This app is intentionally **just the game**:
+
+- No coins
+- No gems
+- No betting
+- No advertising walls or ad SDKs
+- No pay-to-play mechanics
+- No account required for a multiplayer table
+
+The interaction model takes inspiration from polished social card-game apps, while the code, artwork, branding, rules implementation, and UI are original to this project.
+
+## Current build — 0.3.0
+
+### Home
+- Clean Navy / Deep Blue / Teal / Gold visual system
+- Two primary paths: **Play Online** and **Play vs AI**
+
+### Play vs AI
+- Playable 2–4 player Carioca practice game
+- Easy, Medium, and Hard AI
+- Regular (8 rounds) and Special (11 rounds)
 - 108-card double deck; printed Jokers are the only wildcards
 - One Joker maximum per meld; red aces are ordinary cards
-- Leg, straight, Crazy Straight, Colour Straight, and Royal Straight validation
-- Scoring primitives: +2 per steal, −10 exact cut, no −30 going-out bonus
-- Unit tests and GitHub Actions APK build
+- Leg, Straight, Crazy Straight, Colour Straight, and Royal Straight validation
+- Legal discard-steal shine and sound cue
+- Scoring: +2 per steal, −10 exact cut, no −30 going-out bonus
 
-Private multiplayer and the complete turn engine remain the next milestone.
+### Online rooms
+- Live Supabase-backed room creation and joining
+- Private rooms with 6-character invitation codes
+- Public waiting-room discovery
+- 2–4 player table capacity
+- Automatic lobby refresh so joins appear on all connected devices
+- Random local player tokens; raw room tables are not exposed to the client
+
+### Online gameplay status
+The room/lobby transport is live and tested across the backend API. The **next implementation layer is synchronized card-turn state** (dealing, draw/steal, meld actions, discard, scoring and round progression across multiple phones). Until that reducer is wired to the room transport, online rooms are real but online card turns are not yet playable.
 
 ## Build
 
@@ -23,4 +50,8 @@ Use JDK 17, Android SDK 35, and Gradle 8.11.1:
 gradle testDebugUnitTest assembleDebug
 ```
 
-The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+The debug APK is written to:
+
+`app/build/outputs/apk/debug/app-debug.apk`
+
+GitHub Actions also uploads the APK as a workflow artifact.
