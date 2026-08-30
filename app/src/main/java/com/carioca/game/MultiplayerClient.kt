@@ -1,5 +1,6 @@
 package com.carioca.game
 
+import com.carioca.game.domain.GameState
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -24,7 +25,9 @@ data class OnlineRoom(
     val status: String,
     val mySeat: Int,
     val isHost: Boolean,
-    val players: List<OnlinePlayer> = emptyList()
+    val version: Long = 0,
+    val players: List<OnlinePlayer> = emptyList(),
+    val gameState: GameState? = null
 )
 
 data class PublicRoom(
@@ -73,6 +76,23 @@ object MultiplayerClient {
         return parseRoom(rpc("carioca_room_snapshot", payload))
     }
 
+    fun startGame(roomId: String, token: String, state: GameState): OnlineRoom {
+        val payload = JSONObject()
+            .put("p_room_id", roomId)
+            .put("p_token", token)
+            .put("p_state", GameStateJson.encode(state))
+        return parseRoom(rpc("carioca_start_game", payload))
+    }
+
+    fun updateGame(roomId: String, token: String, expectedVersion: Long, state: GameState): OnlineRoom {
+        val payload = JSONObject()
+            .put("p_room_id", roomId)
+            .put("p_token", token)
+            .put("p_expected_version", expectedVersion)
+            .put("p_state", GameStateJson.encode(state))
+        return parseRoom(rpc("carioca_update_game", payload))
+    }
+
     fun publicRooms(): List<PublicRoom> {
         val value = rpc("carioca_public_rooms", JSONObject())
         val array = when (value) {
@@ -108,6 +128,12 @@ object MultiplayerClient {
                 isHost = player.optBoolean("is_host", false)
             )
         }
+        val gameState = when (val raw = obj.opt("game_state")) {
+            null, JSONObject.NULL -> null
+            is JSONObject -> runCatching { GameStateJson.decode(raw) }.getOrNull()
+            is String -> raw.takeIf { it.isNotBlank() && it != "null" }?.let { runCatching { GameStateJson.decode(it) }.getOrNull() }
+            else -> runCatching { GameStateJson.decode(raw) }.getOrNull()
+        }
         return OnlineRoom(
             roomId = obj.getString("room_id"),
             code = obj.getString("code"),
@@ -117,7 +143,9 @@ object MultiplayerClient {
             status = obj.getString("status"),
             mySeat = obj.optInt("my_seat", obj.optInt("seat", 0)),
             isHost = obj.optBoolean("is_host", obj.optInt("seat", -1) == 0),
-            players = players
+            version = obj.optLong("version", 0L),
+            players = players,
+            gameState = gameState
         )
     }
 
