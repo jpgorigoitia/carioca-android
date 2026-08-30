@@ -37,19 +37,19 @@ class GameEngineTest {
     }
 
     @Test
-    fun validSelectedLegCanBeLaidAgainstRoundOneContract() {
+    fun oneThreeCardTrioCanBeMeldedWithoutSelectingTheOtherRoundOneTrio() {
         val initial = GameEngine.newGame(GameMode.REGULAR, totalPlayers = 2, difficulty = Difficulty.MEDIUM, seed = 11)
-        val leg = listOf(
+        val trio = listOf(
             Card(Rank.SEVEN, Suit.CLUBS, deck = 0),
             Card(Rank.SEVEN, Suit.DIAMONDS, deck = 0),
             Card(Rank.SEVEN, Suit.HEARTS, deck = 0)
         )
         val filler = listOf(Card(Rank.TWO, Suit.CLUBS, deck = 1), Card(Rank.THREE, Suit.CLUBS, deck = 1))
-        val human = initial.players.first().copy(hand = leg + filler)
+        val human = initial.players.first().copy(hand = trio + filler)
         val ready = initial.copy(
             players = initial.players.toMutableList().also { it[0] = human },
             phase = TurnPhase.ACTION,
-            selected = leg.toSet()
+            selected = trio.toSet()
         )
 
         val laid = GameEngine.createMeld(ready)
@@ -61,10 +61,53 @@ class GameEngineTest {
     }
 
     @Test
-    fun roundOneDetectsCompleteTwoLegContractInHand() {
+    fun duplicateSuitCopiesFromTwoDecksStillFormATrio() {
+        val initial = GameEngine.newGame(GameMode.REGULAR, totalPlayers = 2, difficulty = Difficulty.MEDIUM, seed = 21)
+        val trio = listOf(
+            Card(Rank.EIGHT, Suit.CLUBS, deck = 0),
+            Card(Rank.EIGHT, Suit.CLUBS, deck = 1),
+            Card(Rank.EIGHT, Suit.HEARTS, deck = 0)
+        )
+        val human = initial.players.first().copy(hand = trio + Card(Rank.TWO, Suit.SPADES, deck = 1))
+        val state = initial.copy(
+            players = initial.players.toMutableList().also { it[0] = human },
+            phase = TurnPhase.ACTION,
+            selected = trio.toSet()
+        )
+
+        val laid = GameEngine.createMeld(state)
+
+        assertEquals(1, laid.players.first().melds.size)
+        assertEquals(trio.toSet(), laid.players.first().melds.first().cards.toSet())
+    }
+
+    @Test
+    fun fourSameRankCardsCannotBeUsedAsOneInitialTrio() {
+        val initial = GameEngine.newGame(GameMode.REGULAR, totalPlayers = 2, difficulty = Difficulty.MEDIUM, seed = 22)
+        val four = listOf(
+            Card(Rank.FIVE, Suit.CLUBS, deck = 0),
+            Card(Rank.FIVE, Suit.DIAMONDS, deck = 0),
+            Card(Rank.FIVE, Suit.HEARTS, deck = 0),
+            Card(Rank.FIVE, Suit.SPADES, deck = 0)
+        )
+        val human = initial.players.first().copy(hand = four + Card(Rank.TWO, Suit.SPADES, deck = 1))
+        val state = initial.copy(
+            players = initial.players.toMutableList().also { it[0] = human },
+            phase = TurnPhase.ACTION,
+            selected = four.toSet()
+        )
+
+        val result = GameEngine.createMeld(state)
+
+        assertTrue(result.players.first().melds.isEmpty())
+        assertEquals(5, result.players.first().hand.size)
+    }
+
+    @Test
+    fun roundOneDetectsCompleteTwoTrioGoalInHand() {
         val initial = GameEngine.newGame(GameMode.REGULAR, totalPlayers = 2, difficulty = Difficulty.MEDIUM, seed = 12)
-        val contract = twoLegContract()
-        val human = initial.players.first().copy(hand = contract + Card(Rank.TWO, Suit.SPADES, deck = 1))
+        val goal = twoTrioGoal()
+        val human = initial.players.first().copy(hand = goal + Card(Rank.TWO, Suit.SPADES, deck = 1))
 
         assertEquals(6, GameRules.requiredCardCount(initial.roundRule))
         assertTrue(GameEngine.contractReady(human, initial.roundRule))
@@ -72,15 +115,15 @@ class GameEngineTest {
     }
 
     @Test
-    fun oneDropCreatesBothRequiredRoundOneMelds() {
+    fun selectingBothRoundOneTriosCanStillMeldBothAtOnce() {
         val initial = GameEngine.newGame(GameMode.REGULAR, totalPlayers = 2, difficulty = Difficulty.MEDIUM, seed = 13)
-        val contract = twoLegContract()
+        val goal = twoTrioGoal()
         val filler = Card(Rank.TWO, Suit.SPADES, deck = 1)
-        val human = initial.players.first().copy(hand = contract + filler)
+        val human = initial.players.first().copy(hand = goal + filler)
         val ready = initial.copy(
             players = initial.players.toMutableList().also { it[0] = human },
             phase = TurnPhase.ACTION,
-            selected = contract.toSet()
+            selected = goal.toSet()
         )
 
         val laid = GameEngine.createMeld(ready)
@@ -92,16 +135,16 @@ class GameEngineTest {
     }
 
     @Test
-    fun completedPlayerCanDragCardOntoSpecificExistingMeld() {
+    fun completedPlayerCanDragCardOntoSpecificExistingTrio() {
         val initial = GameEngine.newGame(GameMode.REGULAR, totalPlayers = 2, difficulty = Difficulty.MEDIUM, seed = 14)
-        val contract = twoLegContract()
+        val goal = twoTrioGoal()
         val extraSeven = Card(Rank.SEVEN, Suit.SPADES, deck = 1)
         val filler = Card(Rank.TWO, Suit.SPADES, deck = 1)
-        val human = initial.players.first().copy(hand = contract + extraSeven + filler)
+        val human = initial.players.first().copy(hand = goal + extraSeven + filler)
         val ready = initial.copy(
             players = initial.players.toMutableList().also { it[0] = human },
             phase = TurnPhase.ACTION,
-            selected = contract.toSet()
+            selected = goal.toSet()
         )
         val laid = GameEngine.createMeld(ready)
 
@@ -116,7 +159,7 @@ class GameEngineTest {
         assertEquals(listOf(filler), extended.players.first().hand)
     }
 
-    private fun twoLegContract(): List<Card> = listOf(
+    private fun twoTrioGoal(): List<Card> = listOf(
         Card(Rank.SEVEN, Suit.CLUBS, deck = 0),
         Card(Rank.SEVEN, Suit.DIAMONDS, deck = 0),
         Card(Rank.SEVEN, Suit.HEARTS, deck = 0),
